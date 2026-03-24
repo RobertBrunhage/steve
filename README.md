@@ -45,13 +45,15 @@ Everything Claude needs to know (persona, skills, instructions) goes into the sy
 steve/                          # The project
   src/                          # TypeScript plumbing
   defaults/                     # Copied to ~/.steve/ on first run
-    persona.md                  # Default personality
+    SOUL.md                  # Default personality
+    AGENTS.md                # Operating instructions
     skills/                     # Default skills
   scripts/credential.sh         # Keychain helper
 
 ~/.steve/                       # Your data (auto-synced to GitHub)
   config.json                   # Bot token, user IDs, model
-  persona.md                    # Personality (edit anytime, no restart)
+  SOUL.md                    # Personality (edit anytime, no restart)
+  AGENTS.md                  # Operating instructions (edit anytime)
   skills/                       # All skills (defaults + Steve-created)
   memory/
     {user}/                     # Per-user memories, reminders, logs

@@ -73,9 +73,9 @@ async function run() {
     assert.equal(config.model, "sonnet");
   });
 
-  test("persona.md copied", () => {
-    assert.ok(existsSync(join(testDir, "persona.md")));
-    const content = readFileSync(join(testDir, "persona.md"), "utf-8");
+  test("SOUL.md copied", () => {
+    assert.ok(existsSync(join(testDir, "SOUL.md")));
+    const content = readFileSync(join(testDir, "SOUL.md"), "utf-8");
     assert.ok(content.includes("Steve"));
   });
 

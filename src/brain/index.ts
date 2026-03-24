@@ -27,12 +27,12 @@ function interpolate(template: string, vars: Record<string, string>): string {
 
 function buildSystemPrompt(userName: string, history: ChatMessage[]): string {
   const persona = loadFile(
-    join(config.steveDir, "persona.md"),
-    join(config.defaultsDir, "persona.md"),
+    join(config.steveDir, "SOUL.md"),
+    join(config.defaultsDir, "SOUL.md"),
   );
   const system = loadFile(
-    join(config.steveDir, "system.md"),
-    join(config.defaultsDir, "system.md"),
+    join(config.steveDir, "AGENTS.md"),
+    join(config.defaultsDir, "AGENTS.md"),
   );
 
   const vars: Record<string, string> = {

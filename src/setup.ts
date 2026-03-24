@@ -52,7 +52,7 @@ function copyDefaults() {
   const copied: string[] = [];
 
   // Copy markdown files from defaults/
-  for (const file of ["persona.md", "system.md"]) {
+  for (const file of ["SOUL.md", "AGENTS.md"]) {
     const src = join(config.defaultsDir, file);
     const dest = join(steveDir, file);
     if (existsSync(src) && !existsSync(dest)) {
