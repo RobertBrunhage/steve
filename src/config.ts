@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(__dirname, "..");
-const steveDir = join(homedir(), ".steve");
+const steveDir = process.env.STEVE_DIR || join(homedir(), ".steve");
 const configPath = join(steveDir, "config.json");
 
 interface SteveConfig {
