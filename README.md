@@ -4,7 +4,7 @@
 
 A personal Telegram assistant powered by the Claude CLI. No API keys needed - uses your local Claude installation.
 
-~1,200 lines of TypeScript. File-based memory. Markdown skills. Auto-backup to GitHub.
+~1,100 lines of TypeScript. File-based memory. Markdown skills. Auto-backup to GitHub.
 
 ```
 You (Telegram) --> Steve --> Claude CLI --> reads/writes ~/.steve/ --> replies
@@ -37,23 +37,21 @@ First run walks you through setup interactively - Telegram bot token, user IDs, 
 
 ## How it works
 
-Steve's code is just plumbing. The brain is `claude -p` with file tools scoped to `~/.steve/`. Skills are markdown files that tell Claude what to do. Memory is markdown files Claude reads and writes. Credentials are in the macOS Keychain.
-
-Everything Claude needs to know (persona, skills, instructions) goes into the system prompt. Claude decides what files to read, what to remember, and when to use a skill.
+Steve's code is just plumbing. The brain is `claude -p` with file tools scoped to `~/.steve/`. Claude gets a lean system prompt (personality + paths) and discovers everything else on its own - reads skills when relevant, searches memory when needed, writes files when something's worth remembering.
 
 ```
 steve/                          # The project
   src/                          # TypeScript plumbing
   defaults/                     # Copied to ~/.steve/ on first run
-    SOUL.md                  # Default personality
-    AGENTS.md                # Operating instructions
+    SOUL.md                     # Personality
+    AGENTS.md                   # Operating instructions
     skills/                     # Default skills
   scripts/credential.sh         # Keychain helper
 
 ~/.steve/                       # Your data (auto-synced to GitHub)
   config.json                   # Bot token, user IDs, model
-  SOUL.md                    # Personality (edit anytime, no restart)
-  AGENTS.md                  # Operating instructions (edit anytime)
+  SOUL.md                       # Personality (edit anytime, no restart)
+  AGENTS.md                     # Operating instructions (edit anytime)
   skills/                       # All skills (defaults + Steve-created)
   memory/
     {user}/                     # Per-user memories, reminders, logs
@@ -77,14 +75,15 @@ Skills are global. Credentials are per-user (stored in macOS Keychain, not files
 
 ## Steve vs OpenClaw
 
-Steve is inspired by [OpenClaw](https://github.com/openclaw/openclaw) but takes a different approach.
+Steve is inspired by [OpenClaw](https://github.com/openclaw/openclaw) but takes a radically simpler approach. Same skill format (SKILL.md + scripts), same file naming (SOUL.md, AGENTS.md), but Steve offloads almost everything to Claude instead of building it in code.
 
 | | Steve | OpenClaw |
 |---|---|---|
 | **Philosophy** | Minimal code, Claude does the work | Full-featured agent runtime |
-| **Codebase** | ~1,200 lines | Massive monorepo |
+| **Codebase** | ~1,100 lines | Massive monorepo |
 | **Brain** | Spawns `claude -p` per message | Embedded agent runtime with streaming |
-| **Skills** | Markdown + scripts (same pattern) | Markdown + scripts + registry + gating |
+| **Prompt** | Lean - personality + paths only, Claude discovers the rest | Pre-loads skills, memory search results, bootstrap files |
+| **Skills** | Same format (SKILL.md + scripts) | Same format + registry + gating + hot-reload |
 | **Memory** | File-based, Claude uses Glob/Grep | File-based + SQLite vector index |
 | **Channels** | Telegram | 21+ (WhatsApp, Slack, Discord, etc.) |
 | **Credentials** | macOS Keychain | SecretRef system (env, file, exec providers) |
