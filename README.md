@@ -1,6 +1,8 @@
 # Steve
 
-> *Named after the beloved monkey from Cloudy with a Chance of Meatballs - steeeeeeeve*
+![steeeeeeeve](assets/steve.gif)
+
+> *steeeeeeeve* - the monkey from Cloudy with a Chance of Meatballs, but now he can actually help you
 
 A personal Telegram assistant powered by the Claude CLI. No API keys needed - uses your local Claude installation.
 

@@ -5,7 +5,16 @@ import matter from "gray-matter";
 import type { Bot } from "grammy";
 import type { Brain } from "./brain/index.js";
 import { config } from "./config.js";
-import { getChatIdForUser } from "./user-map.js";
+
+function getChatIdForUser(userName: string): number | null {
+  // Find the user ID whose name matches
+  for (const [id, name] of Object.entries(config.telegram.users)) {
+    if (name.toLowerCase() === userName.toLowerCase()) {
+      return Number(id);
+    }
+  }
+  return null;
+}
 
 interface CronReminder {
   kind: "cron";

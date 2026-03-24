@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { Bot, Context } from "grammy";
 import type { Brain } from "../brain/index.js";
 import { config } from "../config.js";
+import { getUserName } from "./commands.js";
 
 const tmpDir = join(config.dataDir, "tmp");
 
@@ -38,7 +39,7 @@ export async function handleBrainMessage(
   await ctx.replyWithChatAction("typing");
 
   const userId = String(ctx.from?.id ?? "unknown");
-  const userName = ctx.from?.first_name ?? "User";
+  const userName = getUserName(ctx.from?.id ?? 0);
   const chatId = `telegram-${userId}`;
 
   const reply = await brain.think(userMessage, userName, chatId);
@@ -64,7 +65,7 @@ export function registerMessageHandler(
     await ctx.replyWithChatAction("typing");
 
     const userId = String(ctx.from?.id ?? "unknown");
-    const userName = ctx.from?.first_name ?? "User";
+    const userName = getUserName(ctx.from?.id ?? 0);
     const chatId = `telegram-${userId}`;
     const caption = ctx.message.caption || "The user sent a photo.";
 

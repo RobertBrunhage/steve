@@ -46,7 +46,7 @@ async function run() {
     join(testDir, "config.json"),
     JSON.stringify({
       telegram_bot_token: "test-token-123",
-      allowed_user_ids: [12345],
+      users: { "12345": "TestUser" },
       model: "sonnet",
     }),
     "utf-8",
@@ -69,7 +69,7 @@ async function run() {
     assert.ok(existsSync(configPath));
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
     assert.equal(config.telegram_bot_token, "test-token-123");
-    assert.deepEqual(config.allowed_user_ids, [12345]);
+    assert.deepEqual(config.users, { "12345": "TestUser" });
     assert.equal(config.model, "sonnet");
   });
 

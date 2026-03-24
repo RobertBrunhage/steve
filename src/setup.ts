@@ -79,11 +79,11 @@ function copyDefaults() {
   return copied;
 }
 
-function saveConfig(botToken: string, userIds: number[], model: string) {
+function saveConfig(botToken: string, users: Record<string, string>, model: string) {
   writeFileSync(
     configPath,
     JSON.stringify(
-      { telegram_bot_token: botToken, allowed_user_ids: userIds, model },
+      { telegram_bot_token: botToken, users, model },
       null,
       2,
     ),
@@ -202,42 +202,47 @@ async function fullSetup(): Promise<boolean> {
       "  2. Message @userinfobot to get your user ID",
   );
 
-  const telegram = await p.group(
-    {
-      botToken: () =>
-        p.text({
-          message: "Bot token",
-          placeholder: "paste from @BotFather",
-          validate: (v) => (!v || v.length < 10 ? "That doesn't look right" : undefined),
-        }),
-      userIds: () =>
-        p.text({
-          message: "User ID(s)",
-          placeholder: "comma-separated for multiple users",
-          validate: (v) => {
-            if (!v) return "Enter at least one numeric user ID";
-            const ids = v
-              .split(",")
-              .map((id) => Number(id.trim()))
-              .filter((id) => id > 0);
-            return ids.length === 0
-              ? "Enter at least one numeric user ID"
-              : undefined;
-          },
-        }),
-    },
-    {
-      onCancel: () => {
-        p.cancel("Setup cancelled.");
-        process.exit(0);
-      },
-    },
-  );
+  const botToken = await p.text({
+    message: "Bot token",
+    placeholder: "paste from @BotFather",
+    validate: (v) => (!v || v.length < 10 ? "That doesn't look right" : undefined),
+  });
 
-  const userIds = (telegram.userIds as string)
-    .split(",")
-    .map((id) => Number(id.trim()))
-    .filter((id) => id > 0);
+  if (p.isCancel(botToken)) {
+    p.cancel("Setup cancelled.");
+    process.exit(0);
+  }
+
+  // Collect users one at a time
+  const users: Record<string, string> = {};
+  let addMore = true;
+
+  while (addMore) {
+    const name = await p.text({
+      message: "User name",
+      placeholder: "e.g. Robert",
+      validate: (v) => (!v ? "Name is required" : undefined),
+    });
+    if (p.isCancel(name)) { p.cancel("Setup cancelled."); process.exit(0); }
+
+    const id = await p.text({
+      message: `Telegram user ID for ${name}`,
+      placeholder: "get it from @userinfobot",
+      validate: (v) => (!v || isNaN(Number(v)) ? "Must be a number" : undefined),
+    });
+    if (p.isCancel(id)) { p.cancel("Setup cancelled."); process.exit(0); }
+
+    users[id as string] = name as string;
+
+    const more = await p.confirm({ message: "Add another user?" });
+    if (p.isCancel(more)) { p.cancel("Setup cancelled."); process.exit(0); }
+    addMore = more;
+  }
+
+  if (Object.keys(users).length === 0) {
+    p.log.error("At least one user is required.");
+    process.exit(1);
+  }
 
   // Step 3: Model
   const model = await p.select({
@@ -263,7 +268,7 @@ async function fullSetup(): Promise<boolean> {
 
   s.start("Creating ~/.steve/");
   createDirectories();
-  saveConfig(telegram.botToken as string, userIds, model as string);
+  saveConfig(botToken as string, users, model as string);
   const copied = copyDefaults();
   s.stop("Created ~/.steve/");
 

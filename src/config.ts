@@ -8,10 +8,14 @@ const projectRoot = resolve(__dirname, "..");
 const steveDir = process.env.STEVE_DIR || join(homedir(), ".steve");
 const configPath = join(steveDir, "config.json");
 
+// users map: { "telegram_id": "Name" }
+type UsersMap = Record<string, string>;
+
 interface SteveConfig {
   telegram: {
     botToken: string | undefined;
     allowedUserIds: number[];
+    users: UsersMap;
   };
   claude: {
     model: string;
@@ -36,10 +40,14 @@ function loadConfig(): SteveConfig {
     }
   }
 
+  const users: UsersMap = fileConfig.users || {};
+  const allowedUserIds = Object.keys(users).map(Number).filter((id) => id > 0);
+
   return Object.freeze({
     telegram: {
       botToken: fileConfig.telegram_bot_token || undefined,
-      allowedUserIds: (fileConfig.allowed_user_ids || []) as number[],
+      allowedUserIds,
+      users,
     },
     claude: {
       model: fileConfig.model || "sonnet",
