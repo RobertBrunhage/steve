@@ -10,6 +10,7 @@
     "test:docker": "docker build -t steve-test . && docker run --rm steve-test"
   },
   "dependencies": {
+    "@clack/prompts": "^1.1.0",
     "cron": "^4.4.0",
     "date-fns": "^4.1.0",
     "grammy": "^1.41.1",

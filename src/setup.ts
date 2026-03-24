@@ -8,34 +8,10 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
-import { createInterface } from "node:readline";
+import * as p from "@clack/prompts";
 import { steveDir, configPath, config } from "./config.js";
 
-const rl = createInterface({ input: process.stdin, output: process.stdout });
-
-function ask(question: string): Promise<string> {
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => resolve(answer.trim()));
-  });
-}
-
-function print(msg: string) {
-  console.log(msg);
-}
-
-function success(msg: string) {
-  console.log(`  ✓ ${msg}`);
-}
-
-function warn(msg: string) {
-  console.log(`  ! ${msg}`);
-}
-
-function fail(msg: string) {
-  console.log(`  ✗ ${msg}`);
-}
-
-// --- Checks ---
+// --- Helpers ---
 
 function checkCommand(cmd: string): boolean {
   try {
@@ -46,104 +22,11 @@ function checkCommand(cmd: string): boolean {
   }
 }
 
-function checkPrerequisites(): { ok: boolean; missing: string[] } {
-  const required = [
-    { cmd: "git", install: "brew install git" },
-    { cmd: "node", install: "brew install node" },
-    { cmd: "claude", install: "See https://docs.anthropic.com/en/docs/claude-code" },
-  ];
-
-  const missing: string[] = [];
-  for (const { cmd, install } of required) {
-    if (checkCommand(cmd)) {
-      success(`${cmd} found`);
-    } else {
-      fail(`${cmd} not found. Install with: ${install}`);
-      missing.push(cmd);
-    }
-  }
-
-  // Optional
-  if (checkCommand("gh")) {
-    success("GitHub CLI (gh) found");
-  } else {
-    warn("GitHub CLI (gh) not found - backup to GitHub won't be available");
-    warn("Install later with: brew install gh");
-  }
-
-  return { ok: missing.length === 0, missing };
-}
-
 function isGhAuthenticated(): boolean {
   try {
     execSync("gh auth status", { stdio: "ignore" });
     return true;
   } catch {
-    return false;
-  }
-}
-
-// --- Setup steps ---
-
-function createDirectories() {
-  mkdirSync(steveDir, { recursive: true });
-  mkdirSync(config.memoryDir, { recursive: true });
-  mkdirSync(join(config.memoryDir, "shared"), { recursive: true });
-  success("Created ~/.steve/ directories");
-}
-
-function copyDefaults() {
-  // Persona
-  const defaultPersona = join(config.projectRoot, "persona.md");
-  const userPersona = join(steveDir, "persona.md");
-  if (existsSync(defaultPersona) && !existsSync(userPersona)) {
-    cpSync(defaultPersona, userPersona);
-    success("Copied default persona");
-  }
-
-  // Skills
-  const src = config.defaultSkillsDir;
-  const dest = config.skillsDir;
-  mkdirSync(dest, { recursive: true });
-
-  if (existsSync(src)) {
-    for (const entry of readdirSync(src)) {
-      const destEntry = join(dest, entry);
-      if (!existsSync(destEntry)) {
-        cpSync(join(src, entry), destEntry, { recursive: true });
-        success(`Copied skill: ${entry}`);
-      }
-    }
-  }
-}
-
-function saveConfig(botToken: string, userIds: number[], model: string) {
-  const data = {
-    telegram_bot_token: botToken,
-    allowed_user_ids: userIds,
-    model,
-  };
-  writeFileSync(configPath, JSON.stringify(data, null, 2), "utf-8");
-  success("Config saved");
-}
-
-function initGitRepo(): boolean {
-  if (existsSync(join(steveDir, ".git"))) {
-    success("Git repo already initialized");
-    return true;
-  }
-
-  try {
-    execSync("git init", { cwd: steveDir, stdio: "ignore" });
-    writeFileSync(join(steveDir, ".gitignore"), "tmp/\n", "utf-8");
-    execSync('git add -A && git commit -m "Initial Steve data"', {
-      cwd: steveDir,
-      stdio: "ignore",
-    });
-    success("Git repo initialized");
-    return true;
-  } catch {
-    fail("Could not initialize git repo");
     return false;
   }
 }
@@ -157,33 +40,84 @@ function hasGitRemote(): boolean {
   }
 }
 
-function createGitHubRepo(): boolean {
-  if (hasGitRemote()) {
-    success("GitHub remote already configured");
+// --- Setup steps ---
+
+function createDirectories() {
+  mkdirSync(steveDir, { recursive: true });
+  mkdirSync(config.memoryDir, { recursive: true });
+  mkdirSync(join(config.memoryDir, "shared"), { recursive: true });
+}
+
+function copyDefaults() {
+  const copied: string[] = [];
+
+  // Persona
+  const defaultPersona = join(config.defaultsDir, "persona.md");
+  const userPersona = join(steveDir, "persona.md");
+  if (existsSync(defaultPersona) && !existsSync(userPersona)) {
+    cpSync(defaultPersona, userPersona);
+    copied.push("persona.md");
+  }
+
+  // Skills
+  const src = config.defaultSkillsDir;
+  const dest = config.skillsDir;
+  mkdirSync(dest, { recursive: true });
+
+  if (existsSync(src)) {
+    for (const entry of readdirSync(src)) {
+      const destEntry = join(dest, entry);
+      if (!existsSync(destEntry)) {
+        cpSync(join(src, entry), destEntry, { recursive: true });
+        copied.push(entry);
+      }
+    }
+  }
+
+  return copied;
+}
+
+function saveConfig(botToken: string, userIds: number[], model: string) {
+  writeFileSync(
+    configPath,
+    JSON.stringify(
+      { telegram_bot_token: botToken, allowed_user_ids: userIds, model },
+      null,
+      2,
+    ),
+    "utf-8",
+  );
+}
+
+function initGitRepo(): boolean {
+  if (existsSync(join(steveDir, ".git"))) return true;
+
+  try {
+    execSync("git init", { cwd: steveDir, stdio: "ignore" });
+    writeFileSync(join(steveDir, ".gitignore"), "tmp/\n", "utf-8");
+    execSync('git add -A && git commit -m "Initial Steve data"', {
+      cwd: steveDir,
+      stdio: "ignore",
+    });
     return true;
-  }
-
-  if (!checkCommand("gh")) {
-    warn("Skipping GitHub backup (gh not installed)");
+  } catch {
     return false;
   }
+}
 
-  if (!isGhAuthenticated()) {
-    warn("GitHub CLI not authenticated. Run: gh auth login");
-    warn("You can set up backup later by running the setup again");
-    return false;
-  }
+function createGitHubRepo(): "created" | "exists" | "skipped" | "failed" {
+  if (hasGitRemote()) return "exists";
+  if (!checkCommand("gh")) return "skipped";
+  if (!isGhAuthenticated()) return "skipped";
 
   try {
     execSync(
       'gh repo create steve-data --private --source . --push --description "Steve personal assistant data"',
       { cwd: steveDir, stdio: ["pipe", "pipe", "pipe"] },
     );
-    success("Private GitHub repo created and pushed");
-    return true;
+    return "created";
   } catch (err: any) {
     if (err.stderr?.toString().includes("already exists")) {
-      // Repo exists, try to connect to it
       try {
         const username = execSync("gh api user -q .login", {
           encoding: "utf-8",
@@ -196,22 +130,186 @@ function createGitHubRepo(): boolean {
           cwd: steveDir,
           stdio: "ignore",
         });
-        success("Connected to existing GitHub repo");
-        return true;
+        return "exists";
       } catch {
-        warn("GitHub repo exists but couldn't connect. Set up manually later.");
-        return false;
+        return "failed";
       }
     }
-    warn("Could not create GitHub repo. You can set this up later.");
-    return false;
+    return "failed";
   }
 }
 
 // --- Main flow ---
 
+async function fullSetup(): Promise<boolean> {
+  p.intro("Steve - Personal Assistant");
+
+  // Step 1: Prerequisites
+  const prereqs = p.group(
+    {
+      check: () => {
+        const results: { name: string; ok: boolean; hint?: string }[] = [
+          { name: "git", ok: checkCommand("git"), hint: "brew install git" },
+          { name: "node", ok: checkCommand("node"), hint: "brew install node" },
+          {
+            name: "claude",
+            ok: checkCommand("claude"),
+            hint: "https://docs.anthropic.com/en/docs/claude-code",
+          },
+        ];
+
+        const ghOk = checkCommand("gh");
+        const ghAuth = ghOk && isGhAuthenticated();
+
+        const missing = results.filter((r) => !r.ok);
+        if (missing.length > 0) {
+          const msg = missing
+            .map((m) => `${m.name} - install with: ${m.hint}`)
+            .join("\n  ");
+          return Promise.reject(
+            new Error(`Missing required tools:\n  ${msg}`),
+          );
+        }
+
+        const status = results.map((r) => r.name).join("  ");
+        const ghStatus = ghOk
+          ? ghAuth
+            ? "  gh (authenticated)"
+            : "  gh (not authenticated - run: gh auth login)"
+          : "";
+
+        p.log.success(`${status}${ghStatus}`);
+        return Promise.resolve(true);
+      },
+    },
+    {
+      onCancel: () => {
+        p.cancel("Setup cancelled.");
+        process.exit(0);
+      },
+    },
+  );
+
+  await prereqs;
+
+  // Step 2: Telegram
+  p.log.step("Telegram setup");
+  p.log.message(
+    "You need a bot token and your user ID.\n" +
+      "  1. Message @BotFather on Telegram, send /newbot\n" +
+      "  2. Message @userinfobot to get your user ID",
+  );
+
+  const telegram = await p.group(
+    {
+      botToken: () =>
+        p.text({
+          message: "Bot token",
+          placeholder: "paste from @BotFather",
+          validate: (v) => (!v || v.length < 10 ? "That doesn't look right" : undefined),
+        }),
+      userIds: () =>
+        p.text({
+          message: "User ID(s)",
+          placeholder: "comma-separated for multiple users",
+          validate: (v) => {
+            if (!v) return "Enter at least one numeric user ID";
+            const ids = v
+              .split(",")
+              .map((id) => Number(id.trim()))
+              .filter((id) => id > 0);
+            return ids.length === 0
+              ? "Enter at least one numeric user ID"
+              : undefined;
+          },
+        }),
+    },
+    {
+      onCancel: () => {
+        p.cancel("Setup cancelled.");
+        process.exit(0);
+      },
+    },
+  );
+
+  const userIds = (telegram.userIds as string)
+    .split(",")
+    .map((id) => Number(id.trim()))
+    .filter((id) => id > 0);
+
+  // Step 3: Model
+  const model = await p.select({
+    message: "Claude model",
+    options: [
+      { value: "sonnet", label: "Sonnet", hint: "fast, good for most things" },
+      {
+        value: "opus",
+        label: "Opus",
+        hint: "smartest, slower",
+      },
+      { value: "haiku", label: "Haiku", hint: "fastest, simplest tasks" },
+    ],
+  });
+
+  if (p.isCancel(model)) {
+    p.cancel("Setup cancelled.");
+    process.exit(0);
+  }
+
+  // Step 4: Create everything
+  const s = p.spinner();
+
+  s.start("Creating ~/.steve/");
+  createDirectories();
+  saveConfig(telegram.botToken as string, userIds, model as string);
+  const copied = copyDefaults();
+  s.stop("Created ~/.steve/");
+
+  if (copied.length > 0) {
+    p.log.success(`Copied defaults: ${copied.join(", ")}`);
+  }
+
+  // Step 5: Git + GitHub
+  s.start("Initializing git repo");
+  const gitOk = initGitRepo();
+  s.stop(gitOk ? "Git repo ready" : "Git init failed (non-critical)");
+
+  if (gitOk) {
+    s.start("Setting up GitHub backup");
+    const ghResult = createGitHubRepo();
+    switch (ghResult) {
+      case "created":
+        s.stop("Private GitHub repo created");
+        break;
+      case "exists":
+        s.stop("GitHub remote connected");
+        break;
+      case "skipped":
+        s.stop("GitHub backup skipped (gh not available or not authenticated)");
+        p.log.info(
+          "Set up later: cd ~/.steve && gh repo create steve-data --private --source . --push",
+        );
+        break;
+      case "failed":
+        s.stop("GitHub setup failed (non-critical)");
+        p.log.info("Set up manually later");
+        break;
+    }
+  }
+
+  // Done
+  p.log.success("Data:   ~/.steve/");
+  p.log.success("Config: ~/.steve/config.json");
+  if (hasGitRemote()) {
+    p.log.success("Backup: Auto-syncs to GitHub every 5 min");
+  }
+
+  p.outro("Steve is ready!");
+  return true;
+}
+
 export async function runSetup(): Promise<boolean> {
-  // Already configured - ensure everything is in place
+  // Already configured - ensure directories and defaults exist
   if (existsSync(configPath)) {
     try {
       const existing = JSON.parse(readFileSync(configPath, "utf-8"));
@@ -226,83 +324,5 @@ export async function runSetup(): Promise<boolean> {
     }
   }
 
-  print("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  print("  Steve - Personal Assistant Setup");
-  print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-
-  // Step 1: Check prerequisites
-  print("Checking prerequisites...\n");
-  const { ok, missing } = checkPrerequisites();
-  if (!ok) {
-    print(`\nMissing required tools: ${missing.join(", ")}`);
-    print("Install them and run setup again.\n");
-    rl.close();
-    return false;
-  }
-
-  // Step 2: Telegram setup
-  print("\n─── Telegram Bot ───\n");
-  print("You need a Telegram bot token and your user ID.");
-  print("  1. Message @BotFather on Telegram, send /newbot");
-  print("  2. Message @userinfobot to get your user ID\n");
-
-  const botToken = await ask("Bot token: ");
-  if (!botToken) {
-    print("Bot token is required.\n");
-    rl.close();
-    return false;
-  }
-
-  const userIdsStr = await ask(
-    "User ID(s) (comma-separated for multiple users): ",
-  );
-  const userIds = userIdsStr
-    .split(",")
-    .map((id) => Number(id.trim()))
-    .filter((id) => id > 0);
-
-  if (userIds.length === 0) {
-    print("At least one user ID is required.\n");
-    rl.close();
-    return false;
-  }
-
-  // Step 3: Model choice
-  print("\n─── AI Model ───\n");
-  print("Which Claude model should Steve use?");
-  print("  sonnet - Fast, cheap, good for most things (default)");
-  print("  opus   - Smartest, slower, best for complex tasks");
-  print("  haiku  - Fastest, cheapest, good for simple tasks\n");
-
-  const model = (await ask("Model [sonnet]: ")) || "sonnet";
-
-  rl.close();
-
-  // Step 4: Create everything
-  print("\n─── Setting up ~/.steve/ ───\n");
-
-  createDirectories();
-  saveConfig(botToken, userIds, model);
-  copyDefaults();
-
-  // Step 5: Git + GitHub
-  print("\n─── Backup ───\n");
-
-  const gitOk = initGitRepo();
-  if (gitOk) {
-    createGitHubRepo();
-  }
-
-  print("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  print("  Steve is ready!");
-  print("");
-  print("  Data:   ~/.steve/");
-  print("  Config: ~/.steve/config.json");
-  print("  Skills: ~/.steve/skills/");
-  if (hasGitRemote()) {
-    print("  Backup: Auto-syncs to GitHub every 5 min");
-  }
-  print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-
-  return true;
+  return fullSetup();
 }

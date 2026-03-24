@@ -35,7 +35,7 @@ const HISTORY_TTL_MS = 60 * 60 * 1000; // 1 hour
 function loadPersona(): string {
   // Check ~/.steve/ first, then project root for default
   const userPersona = join(config.steveDir, "persona.md");
-  const defaultPersona = resolve(config.projectRoot, "persona.md");
+  const defaultPersona = join(config.defaultsDir, "persona.md");
   try {
     return readFileSync(existsSync(userPersona) ? userPersona : defaultPersona, "utf-8");
   } catch {

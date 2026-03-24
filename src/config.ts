@@ -21,6 +21,7 @@ interface SteveConfig {
   dataDir: string;
   memoryDir: string;
   skillsDir: string;
+  defaultsDir: string;
   defaultSkillsDir: string;
 }
 
@@ -48,7 +49,8 @@ function loadConfig(): SteveConfig {
     dataDir: steveDir,
     memoryDir: join(steveDir, "memory"),
     skillsDir: join(steveDir, "skills"),
-    defaultSkillsDir: join(projectRoot, "skills"),
+    defaultsDir: join(projectRoot, "defaults"),
+    defaultSkillsDir: join(projectRoot, "defaults/skills"),
   });
 }
 

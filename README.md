@@ -82,7 +82,7 @@ User ID(s): 12345,67890
 ## Architecture
 
 ```
-steve/                          # The project (code + default skills)
+steve/                          # The project (installable)
   src/                          # ~1,200 lines of TypeScript
     index.ts                    # Entry point, setup, retry logic
     config.ts                   # Reads ~/.steve/config.json
@@ -93,8 +93,9 @@ steve/                          # The project (code + default skills)
     user-map.ts                 # Telegram user ID <-> name mapping
     bot/                        # Telegram handlers (grammY)
     brain/                      # Calls claude CLI, builds system prompt
-  skills/                       # Default skills (shipped with project)
-  persona.md                    # Default personality
+  defaults/                     # Copied to ~/.steve/ on first run
+    persona.md                  # Default personality
+    skills/                     # Default skills
   scripts/credential.sh         # Keychain helper for skills
 
 ~/.steve/                       # Your data (auto-synced to GitHub)
