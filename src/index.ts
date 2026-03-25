@@ -1,3 +1,4 @@
+import * as p from "@clack/prompts";
 import { config } from "./config.js";
 import { runSetup } from "./setup.js";
 import { createBot } from "./bot/index.js";
@@ -27,28 +28,27 @@ async function startBot(botToken: string, brain: Brain) {
       { command: "history", description: "View recent training history" },
     ]);
 
-    startScheduler(brain, bot);
+    startScheduler(brain);
 
     await bot.api.deleteWebhook({ drop_pending_updates: true });
 
     try {
-      console.log(`[Steve] Starting bot (attempt ${attempt})...`);
-      // bot.start() returns a promise that resolves when polling begins
-      // but throws on the first getUpdates if there's a conflict
+      if (attempt > 1) {
+        p.log.warn(`Connecting to Telegram (attempt ${attempt})`);
+      }
+
       await new Promise<void>((resolve, reject) => {
         bot.start({
           onStart: () => {
-            console.log("[Steve] Bot is running!");
+            p.log.success("Listening for messages");
             resolve();
           },
         });
 
-        // Listen for polling errors
         bot.catch((err) => {
-          console.error(`[Bot] Error:`, err.error);
+          p.log.error(`Bot error: ${err.error}`);
         });
 
-        // grammY throws polling errors as unhandled rejections
         const handler = (err: any) => {
           if (err?.error_code === 409) {
             process.removeListener("unhandledRejection", handler);
@@ -58,16 +58,15 @@ async function startBot(botToken: string, brain: Brain) {
         };
         process.on("unhandledRejection", handler);
 
-        // If no error after 5s, we're good
         sleep(5000).then(() => {
           process.removeListener("unhandledRejection", handler);
           resolve();
         });
       });
 
-      // If we got here, bot is running
       const shutdown = () => {
-        console.log("[Steve] Shutting down...");
+        p.outro("Steve stopped");
+        brain.stopAll();
         bot.stop();
         process.exit(0);
       };
@@ -76,7 +75,7 @@ async function startBot(botToken: string, brain: Brain) {
       return;
     } catch (err: any) {
       if (err?.error_code === 409 && attempt < MAX_RETRIES) {
-        console.log(`[Steve] Telegram conflict, waiting 10s before retry...`);
+        p.log.warn("Telegram conflict, retrying in 10s...");
         await sleep(10_000);
       } else {
         throw err;
@@ -92,9 +91,11 @@ async function main() {
   const { config: freshConfig } = await import("./config.js");
 
   if (!freshConfig.telegram.botToken) {
-    console.error("No Telegram bot token configured. Run setup again.");
+    p.log.error("No Telegram bot token configured. Run setup again.");
     process.exit(1);
   }
+
+  p.intro("Steve");
 
   const brain = new Brain();
   startAutoSync();
@@ -102,6 +103,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error("[Steve] Fatal error:", error);
+  p.log.error(`Fatal: ${error instanceof Error ? error.message : error}`);
   process.exit(1);
 });

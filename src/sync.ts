@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import * as p from "@clack/prompts";
 import { steveDir } from "./config.js";
 
 function hasChanges(): boolean {
@@ -35,7 +36,7 @@ function sync() {
       execSync("git push", { cwd: steveDir, stdio: "ignore" });
     }
   } catch (err) {
-    console.error("[Sync] Failed:", err);
+    p.log.warn(`Sync failed: ${err instanceof Error ? err.message : err}`);
   }
 }
 
@@ -48,5 +49,5 @@ export function startAutoSync() {
   // Then every 5 minutes
   setInterval(sync, SYNC_INTERVAL_MS);
 
-  console.log("[Sync] Auto-sync enabled (every 5 minutes)");
+  p.log.info("Auto-sync enabled");
 }

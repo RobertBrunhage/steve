@@ -17,9 +17,7 @@ interface SteveConfig {
     allowedUserIds: number[];
     users: UsersMap;
   };
-  claude: {
-    model: string;
-  };
+  model: string;
   projectRoot: string;
   steveDir: string;
   dataDir: string;
@@ -49,9 +47,7 @@ function loadConfig(): SteveConfig {
       allowedUserIds,
       users,
     },
-    claude: {
-      model: fileConfig.model || "sonnet",
-    },
+    model: fileConfig.model || "openai/gpt-5.2",
     projectRoot,
     steveDir,
     dataDir: steveDir,

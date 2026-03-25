@@ -76,6 +76,26 @@ function copyDefaults() {
     }
   }
 
+  // Generate opencode.json with correct absolute paths
+  const opencodeJson = {
+    $schema: "https://opencode.ai/config.json",
+    mcp: {
+      telegram: {
+        type: "local",
+        command: [
+          "npx", "--prefix", config.projectRoot,
+          "tsx", join(config.projectRoot, "src/mcp/server.ts"),
+        ],
+        enabled: true,
+      },
+    },
+  };
+  writeFileSync(
+    join(steveDir, "opencode.json"),
+    JSON.stringify(opencodeJson, null, 2),
+    "utf-8",
+  );
+
   return copied;
 }
 
@@ -246,15 +266,11 @@ async function fullSetup(): Promise<boolean> {
 
   // Step 3: Model
   const model = await p.select({
-    message: "Claude model",
+    message: "Model",
     options: [
-      { value: "sonnet", label: "Sonnet", hint: "fast, good for most things" },
-      {
-        value: "opus",
-        label: "Opus",
-        hint: "smartest, slower",
-      },
-      { value: "haiku", label: "Haiku", hint: "fastest, simplest tasks" },
+      { value: "openai/gpt-5.2", label: "GPT-5.2", hint: "recommended, smart and fast" },
+      { value: "openai/gpt-5.2-codex", label: "GPT-5.2 Codex", hint: "cheaper output, code-optimized" },
+      { value: "openai/gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark", hint: "latest, fast" },
     ],
   });
 

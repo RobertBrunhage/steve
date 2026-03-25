@@ -11,7 +11,6 @@ async function downloadPhoto(ctx: Context): Promise<string | null> {
   const photo = ctx.message?.photo;
   if (!photo || photo.length === 0) return null;
 
-  // Get the largest photo
   const largest = photo[photo.length - 1];
   const file = await ctx.api.getFile(largest.file_id);
   if (!file.file_path) return null;
@@ -31,23 +30,24 @@ async function downloadPhoto(ctx: Context): Promise<string | null> {
   return filepath;
 }
 
+function keepTyping(ctx: Context): () => void {
+  const send = () => ctx.replyWithChatAction("typing").catch(() => {});
+  send();
+  const interval = setInterval(send, 4000);
+  return () => clearInterval(interval);
+}
+
 export async function handleBrainMessage(
   ctx: Context,
   brain: Brain,
   userMessage: string,
 ): Promise<void> {
-  await ctx.replyWithChatAction("typing");
-
-  const userId = String(ctx.from?.id ?? "unknown");
+  const stopTyping = keepTyping(ctx);
   const userName = getUserName(ctx.from?.id ?? 0);
-  const chatId = `telegram-${userId}`;
-
-  const reply = await brain.think(userMessage, userName, chatId);
-
   try {
-    await ctx.reply(reply, { parse_mode: "Markdown" });
-  } catch {
-    await ctx.reply(reply);
+    await brain.think(userMessage, userName);
+  } finally {
+    stopTyping();
   }
 }
 
@@ -55,36 +55,28 @@ export function registerMessageHandler(
   bot: Bot,
   brain: Brain,
 ): void {
-  // Text messages
   bot.on("message:text", async (ctx) => {
     await handleBrainMessage(ctx, brain, ctx.message.text);
   });
 
-  // Photos (with optional caption)
   bot.on("message:photo", async (ctx) => {
-    await ctx.replyWithChatAction("typing");
+    const stopTyping = keepTyping(ctx);
 
-    const userId = String(ctx.from?.id ?? "unknown");
     const userName = getUserName(ctx.from?.id ?? 0);
-    const chatId = `telegram-${userId}`;
     const caption = ctx.message.caption || "The user sent a photo.";
 
     const filepath = await downloadPhoto(ctx);
     if (!filepath) {
+      stopTyping();
       await ctx.reply("Sorry, I couldn't download that image.");
       return;
     }
 
-    const message = `${caption}\n\n[Image attached at: ${filepath} - use the Read tool to view it]`;
-    const reply = await brain.think(message, userName, chatId);
-
-    // Clean up temp file
-    try { await unlink(filepath); } catch {}
-
     try {
-      await ctx.reply(reply, { parse_mode: "Markdown" });
-    } catch {
-      await ctx.reply(reply);
+      await brain.think(caption, userName, [filepath]);
+    } finally {
+      stopTyping();
+      try { await unlink(filepath); } catch {}
     }
   });
 }

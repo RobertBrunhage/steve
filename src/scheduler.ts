@@ -1,20 +1,10 @@
-import { readdirSync, readFileSync, unlinkSync, mkdirSync } from "node:fs";
+import { readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { CronJob } from "cron";
 import matter from "gray-matter";
-import type { Bot } from "grammy";
+import * as p from "@clack/prompts";
 import type { Brain } from "./brain/index.js";
 import { config } from "./config.js";
-
-function getChatIdForUser(userName: string): number | null {
-  // Find the user ID whose name matches
-  for (const [id, name] of Object.entries(config.telegram.users)) {
-    if (name.toLowerCase() === userName.toLowerCase()) {
-      return Number(id);
-    }
-  }
-  return null;
-}
 
 interface CronReminder {
   kind: "cron";
@@ -89,8 +79,8 @@ function loadReminders(): Reminder[] {
             });
           }
         }
-      } catch (err) {
-        console.error(`[Scheduler] Failed to parse ${file}:`, err);
+      } catch {
+        // Skip unparseable reminder files
       }
     }
   }
@@ -98,59 +88,34 @@ function loadReminders(): Reminder[] {
   return reminders;
 }
 
-async function fireReminder(
-  reminder: Reminder,
-  brain: Brain,
-  bot: Bot,
-) {
-  const chatId = getChatIdForUser(reminder.userName);
-  if (!chatId) {
-    console.warn(`[Scheduler] No chat ID for user "${reminder.userName}", skipping`);
-    return;
-  }
+async function fireReminder(reminder: Reminder, brain: Brain) {
+  p.log.step(`Reminder: "${reminder.name}" → ${reminder.userName}`);
 
-  console.log(`[Scheduler] Firing reminder "${reminder.name}" for ${reminder.userName}`);
-
-  const reply = await brain.think(
-    `REMINDER: ${reminder.prompt}`,
-    reminder.userName,
-    `reminder-${reminder.userName}`,
-  );
-
-  try {
-    await bot.api.sendMessage(chatId, reply, { parse_mode: "Markdown" });
-  } catch {
-    try {
-      await bot.api.sendMessage(chatId, reply);
-    } catch (err) {
-      console.error(`[Scheduler] Failed to send message to ${reminder.userName}:`, err);
-    }
-  }
+  await brain.think(`REMINDER: ${reminder.prompt}`, reminder.userName);
 
   // Delete one-off reminders after firing
   if (reminder.kind === "at") {
     try {
       unlinkSync(reminder.file);
-      console.log(`[Scheduler] Deleted one-off reminder: ${reminder.file}`);
-    } catch (err) {
-      console.error(`[Scheduler] Failed to delete ${reminder.file}:`, err);
+    } catch {
+      // Non-critical: file may already be deleted
     }
   }
 }
 
-function checkOneOffs(reminders: OneOffReminder[], brain: Brain, bot: Bot) {
+function checkOneOffs(reminders: OneOffReminder[], brain: Brain) {
   const now = Date.now();
 
   for (const reminder of reminders) {
     if (firedOneOffs.has(reminder.file)) continue;
     if (reminder.at.getTime() <= now) {
       firedOneOffs.add(reminder.file);
-      fireReminder(reminder, brain, bot);
+      fireReminder(reminder, brain);
     }
   }
 }
 
-export function startScheduler(brain: Brain, bot: Bot) {
+export function startScheduler(brain: Brain) {
   let oneOffs: OneOffReminder[] = [];
   let lastFingerprint = "";
 
@@ -165,7 +130,7 @@ export function startScheduler(brain: Brain, bot: Bot) {
 
     if (fingerprint === lastFingerprint && !initial) {
       // Nothing changed, just check one-offs
-      checkOneOffs(oneOffs, brain, bot);
+      checkOneOffs(oneOffs, brain);
       return;
     }
     lastFingerprint = fingerprint;
@@ -182,15 +147,13 @@ export function startScheduler(brain: Brain, bot: Bot) {
         try {
           const job = CronJob.from({
             cronTime: reminder.cron,
-            onTick: () => fireReminder(reminder, brain, bot),
+            onTick: () => fireReminder(reminder, brain),
             start: true,
           });
           activeJobs.set(reminder.file, job);
-          console.log(
-            `[Scheduler] Scheduled "${reminder.name}" for ${reminder.userName} (${reminder.cron})`,
-          );
-        } catch (err) {
-          console.error(`[Scheduler] Invalid cron "${reminder.cron}" in ${reminder.file}:`, err);
+          p.log.info(`Scheduled "${reminder.name}" for ${reminder.userName}`);
+        } catch {
+          p.log.warn(`Invalid cron "${reminder.cron}" in ${reminder.file}`);
         }
       } else {
         oneOffs.push(reminder);
@@ -198,7 +161,9 @@ export function startScheduler(brain: Brain, bot: Bot) {
     }
 
     const total = activeJobs.size + oneOffs.length;
-    console.log(`[Scheduler] ${activeJobs.size} recurring, ${oneOffs.length} one-off (${total} total)`);
+    if (total > 0) {
+      p.log.info(`${total} reminder${total === 1 ? "" : "s"} loaded`);
+    }
   }
 
   // Initial sync
