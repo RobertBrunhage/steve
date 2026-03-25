@@ -1,16 +1,20 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { join, resolve, normalize, basename, dirname } from "node:path";
+import { execFile } from "node:child_process";
 import { z } from "zod";
+import type { Vault } from "../vault/index.js";
 
-// Read config from the working directory (which is ~/.steve/ when opencode runs)
-const configPath = join(process.cwd(), "config.json");
-const config = JSON.parse(readFileSync(configPath, "utf-8"));
-const botToken: string = config.telegram_bot_token;
-const users: Record<string, string> = config.users; // { "telegramId": "Name" }
+interface McpConfig {
+  botToken: string;
+  users: Record<string, string>;
+  projectRoot: string;
+  dataDir: string;
+  secretManagerUrl: string;
+}
 
-function getChatId(userName: string): string | null {
+function getChatId(users: Record<string, string>, userName: string): string | null {
   for (const [id, name] of Object.entries(users)) {
     if (name.toLowerCase() === userName.toLowerCase()) return id;
   }
@@ -18,16 +22,16 @@ function getChatId(userName: string): string | null {
 }
 
 async function sendTelegram(
+  botToken: string,
   chatId: string,
   text: string,
 ): Promise<{ ok: boolean; description?: string }> {
-  // Try Markdown first, fall back to plain text
   let res = await fetch(
     `https://api.telegram.org/bot${botToken}/sendMessage`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "Markdown" }),
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
     },
   );
 
@@ -45,44 +49,194 @@ async function sendTelegram(
   return res.json();
 }
 
-const server = new McpServer({
-  name: "steve-telegram",
-  version: "1.0.0",
-});
+/** Snapshot project scripts at startup (immutable, security-critical) */
+function discoverProjectScripts(projectRoot: string): Set<string> {
+  const scripts = new Set<string>();
+  const dir = join(projectRoot, "scripts");
+  try {
+    for (const file of readdirSync(dir)) {
+      if (file.endsWith(".sh")) {
+        scripts.add(resolve(join(dir, file)));
+      }
+    }
+  } catch {}
+  return scripts;
+}
 
-server.registerTool("send_telegram_message", {
-  description:
-    "Send a message to a user on Telegram. Use this to respond to users.",
-  inputSchema: {
-    userName: z.string().describe("The name of the user to send the message to"),
-    message: z.string().describe("The message text to send (supports Markdown)"),
-  },
-}, async ({ userName, message }) => {
-  const chatId = getChatId(userName);
-  if (!chatId) {
-    return {
-      content: [{ type: "text", text: `Error: Unknown user "${userName}"` }],
-      isError: true,
-    };
+/** Check if a script is inside a skill's scripts/ directory (dynamic, allows new skills) */
+function isSkillScript(scriptPath: string, dataDir: string): boolean {
+  const resolved = resolve(scriptPath);
+  const skillsDir = resolve(join(dataDir, "skills"));
+
+  // Must be under skills/*/scripts/*.sh
+  if (!resolved.startsWith(skillsDir + "/")) return false;
+
+  const relative = resolved.slice(skillsDir.length + 1); // e.g. "withings/scripts/fetch.sh"
+  const parts = relative.split("/");
+  return parts.length === 3 && parts[1] === "scripts" && parts[2].endsWith(".sh");
+}
+
+/** Extract skill name from a script path like skills/withings/scripts/fetch.sh → withings */
+function getSkillFromPath(scriptPath: string): string | null {
+  const parts = scriptPath.split("/");
+  const scriptsIdx = parts.lastIndexOf("scripts");
+  if (scriptsIdx > 0) {
+    return parts[scriptsIdx - 1];
+  }
+  return null;
+}
+
+/** Build credential env vars from vault for a given user + skill */
+function buildCredEnv(vault: Vault | null, userName: string, skill: string | null): Record<string, string> {
+  if (!vault || !skill) return {};
+
+  const env: Record<string, string> = {};
+
+  // Load credentials matching {userName}/{skill}*
+  const entries = vault.getByPrefix(`${userName}/${skill}`);
+  for (const [key, value] of Object.entries(entries)) {
+    if (typeof value === "object" && value !== null) {
+      for (const [field, fieldValue] of Object.entries(value)) {
+        const envKey = `STEVE_CRED_${field.toUpperCase()}`;
+        env[envKey] = String(fieldValue);
+      }
+    }
   }
 
-  const result = await sendTelegram(chatId, message);
-  if (!result.ok) {
+  return env;
+}
+
+export function createMcpServer(mcpConfig: McpConfig, vault: Vault | null): McpServer {
+  const { botToken, users, projectRoot, dataDir } = mcpConfig;
+  const projectScripts = discoverProjectScripts(projectRoot);
+
+  const server = new McpServer({
+    name: "steve-telegram",
+    version: "1.0.0",
+  });
+
+  server.registerTool("send_telegram_message", {
+    description:
+      "Send a message to a user on Telegram. Use this to respond to users.",
+    inputSchema: {
+      userName: z.string().describe("The name of the user to send the message to"),
+      message: z.string().describe("The message text to send (supports Markdown)"),
+    },
+  }, async ({ userName, message }) => {
+    const chatId = getChatId(users, userName);
+    if (!chatId) {
+      return {
+        content: [{ type: "text", text: `Error: Unknown user "${userName}"` }],
+        isError: true,
+      };
+    }
+
+    const result = await sendTelegram(botToken, chatId, message);
+    if (!result.ok) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error: Telegram API returned: ${result.description || "unknown error"}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
     return {
-      content: [
-        {
-          type: "text",
-          text: `Error: Telegram API returned: ${result.description || "unknown error"}`,
+      content: [{ type: "text", text: `Message sent to ${userName}` }],
+    };
+  });
+
+  server.registerTool("get_secret_manager_url", {
+    description:
+      "Get the URL of the Steve secret manager web UI. Use this when you need to direct a user to add or manage their API keys/credentials.",
+    inputSchema: {},
+  }, async () => {
+    return {
+      content: [{ type: "text", text: mcpConfig.secretManagerUrl }],
+    };
+  });
+
+  server.registerTool("run_script", {
+    description:
+      "Run a script from the project's scripts/ directory or a skill's scripts/ directory. Only pre-defined scripts can be executed. Credentials are injected automatically from the vault.",
+    inputSchema: {
+      script: z.string().describe("Absolute path to the script file"),
+      args: z.array(z.string()).optional().describe("Arguments to pass to the script"),
+    },
+  }, async ({ script, args }) => {
+    const resolved = resolve(script);
+    if (!projectScripts.has(resolved) && !isSkillScript(resolved, dataDir)) {
+      return {
+        content: [{ type: "text", text: `Error: Script not allowed. Must be in project scripts/ or skills/*/scripts/.` }],
+        isError: true,
+      };
+    }
+
+    if (!existsSync(script)) {
+      return {
+        content: [{ type: "text", text: `Error: Script not found: ${script}` }],
+        isError: true,
+      };
+    }
+
+    // Extract userName from args (first arg is typically userName)
+    const userName = args?.[0] || "";
+    const skill = getSkillFromPath(script);
+    const credEnv = buildCredEnv(vault, userName, skill);
+
+    // Auth scripts need longer timeout (user interaction)
+    const isAuthScript = basename(script) === "auth.sh";
+    const timeout = isAuthScript ? 180_000 : 30_000;
+
+    return new Promise((res) => {
+      execFile("bash", [script, ...(args || [])], {
+        timeout,
+        env: {
+          ...process.env,
+          STEVE_PROJECT_ROOT: projectRoot,
+          STEVE_DATA_DIR: dataDir,
+          STEVE_HOST_IP: new URL(mcpConfig.secretManagerUrl).hostname,
+          STEVE_WEB_PORT: String(new URL(mcpConfig.secretManagerUrl).port || "3000"),
+          ...credEnv,
         },
-      ],
-      isError: true,
-    };
-  }
+      }, (error, stdout, stderr) => {
+        if (error) {
+          res({
+            content: [{ type: "text", text: stderr || error.message }],
+            isError: true,
+          });
+          return;
+        }
 
-  return {
-    content: [{ type: "text", text: `Message sent to ${userName}` }],
+        res({
+          content: [{ type: "text", text: stdout || "(no output)" }],
+        });
+      });
+    });
+  });
+
+  return server;
+}
+
+// Standalone stdio mode: only when this file is the entry point (not imported)
+// This runs when opencode spawns the MCP server directly via opencode.json "type": "local"
+// In Docker and new local mode, the MCP server is started embedded from index.ts
+if (process.env.STEVE_MCP_STANDALONE === "1") {
+  const configPath = join(process.cwd(), "config.json");
+  const fileConfig = JSON.parse(readFileSync(configPath, "utf-8"));
+
+  const mcpConfig: McpConfig = {
+    botToken: fileConfig.telegram_bot_token,
+    users: fileConfig.users,
+    projectRoot: process.env.STEVE_PROJECT_ROOT || "",
+    dataDir: process.cwd(),
+    secretManagerUrl: fileConfig.secret_manager_url || "http://localhost:3000",
   };
-});
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
+  const server = createMcpServer(mcpConfig, null);
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}

@@ -1,118 +1,138 @@
 # Steve
 
-![steeeeeeeve](assets/steve.gif)
-
-> *steeeeeeeve* - the monkey from Cloudy with a Chance of Meatballs, but now he can actually help you
-
-A personal Telegram assistant powered by [OpenCode](https://github.com/opencode-ai/opencode). Supports OpenAI, Anthropic, local models - whatever OpenCode supports.
-
-~1,080 lines of TypeScript. File-based memory. Markdown skills. Auto-backup to GitHub.
+A personal Telegram assistant powered by [OpenCode](https://github.com/opencode-ai/opencode). Two Docker containers, zero-trust secrets, extensible with markdown skills.
 
 ```
-You (Telegram) --> Steve --> OpenCode --> reads/writes ~/.steve/ --> replies
+You (Telegram) --> Steve --> OpenCode --> reads/writes your data --> replies via MCP
 ```
 
-## Quick start
+## Quick Start
 
-**Prerequisites:** Node.js 22+, pnpm, [OpenCode](https://github.com/opencode-ai/opencode), git
+**Prerequisites:** Docker, Node.js, pnpm
 
 ```bash
 git clone https://github.com/your-username/steve.git
 cd steve
 pnpm install
-pnpm dev
+pnpm launch
 ```
 
-First run walks you through setup interactively - Telegram bot token, user IDs, model choice, GitHub backup.
+First run walks you through:
+1. Set a vault password
+2. OpenCode auth (log in to your AI provider)
+3. Add your Telegram bot token and users (via web UI at :3000)
+4. Done. Message your bot on Telegram.
 
-## What it does
+Subsequent runs: `pnpm launch`, enter vault password, everything starts.
 
-- General-purpose assistant - ask anything
+## Architecture
+
+```
+Docker Network (private)
+┌──────────────────────────────────────────┐
+│                                          │
+│  steve (TS)            opencode (serve)  │
+│  - Telegram bot        - AI brain        │
+│  - MCP server (HTTP)   - bash, read,     │
+│  - Web UI (:3000)        write, glob     │
+│  - Encrypted vault     - HTTP API        │
+│  - Scheduler                             │
+│                                          │
+│  /vault (secrets)      /data (shared)    │
+│  steve-only            ~/.steve/         │
+└──────────────────────────────────────────┘
+```
+
+- **steve container**: Telegram bot, MCP server, secret vault, web UI, scheduler
+- **opencode container**: AI brain with `opencode serve`, sandboxed bash
+- **~/.steve/**: Your data (memory, skills, personality). Bind-mounted, git-syncable.
+- **vault volume**: Encrypted secrets. Steve-only, never git-synced.
+
+## What It Does
+
+- General-purpose assistant via Telegram
 - Web search and URL reading
-- Image processing (send photos on Telegram)
-- Training coach with progression tracking
+- Image understanding (send photos)
+- Health coaching: training, nutrition, body composition, goal tracking
 - Scheduled and one-off reminders
-- Multi-user with isolated memory and sessions per person
-- Shared household memory space
+- Multi-user with isolated memory per person
+- Shared household memory
 - Extensible with markdown skills + shell scripts
-- Credentials via macOS Keychain (no plaintext)
+- Zero-trust secrets: AI never sees your API keys
 
-## How it works
+## How It Works
 
-Steve's code is just plumbing. The brain is OpenCode with file tools scoped to `~/.steve/`. OpenCode reads `SOUL.md` (personality) and `AGENTS.md` (operating instructions) directly, then discovers everything else on its own - reads skills when relevant, searches memory when needed, writes files when something's worth remembering. Each user gets their own persistent session.
+Steve's code is plumbing. The brain is OpenCode running in a sandboxed container. It reads `SOUL.md` (personality) and `AGENTS.md` (instructions) from your data directory, discovers skills when relevant, reads/writes memory files, and responds via the `send_telegram_message` MCP tool.
+
+The AI never sees your secrets. When a skill needs credentials (e.g., Withings API), the MCP `run_script` tool injects them as environment variables from the encrypted vault. The script output goes back to the AI, not the credentials.
+
+## Data Directory
+
+`~/.steve/` is pure user data. No logic, no secrets, no config.
 
 ```
-steve/                          # The project
-  src/                          # TypeScript plumbing
-  defaults/                     # Copied to ~/.steve/ on first run
-    SOUL.md                     # Personality
-    AGENTS.md                   # Operating instructions
-    skills/                     # Default skills
-  scripts/credential.sh         # Keychain helper
-
-~/.steve/                       # Your data (auto-synced to GitHub)
-  config.json                   # Bot token, user IDs, model
-  SOUL.md                       # Personality (edit anytime, no restart)
-  AGENTS.md                     # Operating instructions (edit anytime)
-  skills/                       # All skills (defaults + Steve-created)
+~/.steve/
+  SOUL.md                     # Personality (edit anytime)
+  AGENTS.md                   # Operating instructions (edit anytime)
+  skills/                     # Skills (synced from defaults on boot)
+    training-coach/SKILL.md
+    training-coach/templates/   # File templates for consistent formats
+    reminders/SKILL.md
+    withings/SKILL.md
   memory/
-    {user}/                     # Per-user memories, reminders, logs
-    shared/                     # Household-wide memories
+    {user}/                   # Per-user memories, logs, schedules
+    shared/                   # Household-wide memories
 ```
+
+Runtime config (`opencode.json`, `.opencode/`, `config.json`) is generated on every boot and gitignored.
 
 ## Skills
 
-A skill is a directory with a `SKILL.md` and optional scripts:
+A skill is a directory with a `SKILL.md`, optional scripts, and optional templates:
 
 ```
 my-skill/
   SKILL.md              # Frontmatter + natural language instructions
-  scripts/              # Shell scripts the agent can run
-  references/           # Extra docs the agent can read
+  scripts/              # Shell scripts (credentials auto-injected)
+  templates/            # File templates for consistent data formats
 ```
 
-Create skills by telling Steve (`"create a meal planning skill"`) or manually. See `~/.steve/skills/TEMPLATE.md` for the format.
+Create skills by asking Steve ("create a meal planning skill") or manually. See `skills/TEMPLATE.md`.
 
-Skills are global. Credentials are per-user (stored in macOS Keychain, not files).
+## Secrets
 
-## Steve vs OpenClaw
+All secrets live in an encrypted vault (AES-256-GCM). Manage them at `http://localhost:3000`.
 
-Steve is inspired by [OpenClaw](https://github.com/openclaw/openclaw) but takes a radically simpler approach. Same skill format (SKILL.md + scripts), same file naming (SOUL.md, AGENTS.md), but Steve offloads almost everything to the agent runtime instead of building it in code.
+- Vault password is the only thing you need to remember
+- Bot token, API keys, OAuth tokens all stored in the vault
+- Web UI for adding/editing/deleting secrets
+- Scripts get credentials injected as `STEVE_CRED_*` env vars
+- The AI never sees raw credentials
 
-| | Steve | OpenClaw |
-|---|---|---|
-| **Philosophy** | Minimal code, agent does the work | Full-featured agent runtime |
-| **Codebase** | ~1,080 lines | Massive monorepo |
-| **Brain** | OpenCode (any model/provider) | Embedded runtime, Anthropic-focused |
-| **Models** | OpenAI, Anthropic, local - whatever OpenCode supports | Primarily Anthropic |
-| **Prompt** | Lean - SOUL.md + AGENTS.md, agent discovers the rest | Bootstrap files + eligible skills + memory search results |
-| **Sessions** | Per-user persistent sessions via OpenCode | Full session transcripts + compaction |
-| **Skills** | Same format (SKILL.md + scripts) | Same format + registry + gating + hot-reload |
-| **Memory** | File-based, agent uses Glob/Grep | File-based + SQLite vector index |
-| **Channels** | Telegram | 21+ (WhatsApp, Slack, Discord, etc.) |
-| **Credentials** | macOS Keychain | SecretRef system (env, file, exec providers) |
-| **Setup** | Interactive CLI, 2 minutes | More configuration required |
-| **Backup** | Auto-sync to private GitHub repo | Manual |
+## Adding Integrations
 
-**When to use Steve:** You want a simple, model-agnostic personal assistant you can set up in minutes and extend with markdown files.
-
-**When to use OpenClaw:** You need multi-channel support, multiple agents, a skill marketplace, or semantic memory search at scale.
+1. Message Steve: "add Home Assistant integration"
+2. Steve creates a skill with instructions
+3. Steve tells you: "Add your API key at http://localhost:3000/secrets"
+4. You paste the key in the web UI
+5. Done. Steve can now use the integration.
 
 ## Security
 
-- Credentials in macOS Keychain, not on disk
-- File access scoped to `~/.steve/`
-- Telegram filtered by user ID
+- AI runs in a sandboxed Docker container
+- Secrets encrypted at rest, injected only into script subprocesses
+- Telegram filtered by user ID allowlist
+- MCP tools are the only way the AI interacts with the outside world
+- Scripts snapshotted at startup (AI can't create and execute new scripts)
 
 ## Development
 
 ```bash
-pnpm dev          # Run Steve
-pnpm test         # Run tests (uses temp dir, never touches ~/.steve/)
-pnpm build        # TypeScript build
+pnpm launch           # Start with Docker (recommended)
+pnpm dev              # Run locally without Docker (requires opencode installed)
+pnpm build            # TypeScript build
+pnpm test             # Run tests
 ```
-
-Set `STEVE_DIR` to override the data directory (used by tests and CI).
 
 ## License
 

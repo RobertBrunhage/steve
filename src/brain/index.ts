@@ -1,30 +1,20 @@
-import { spawn } from "node:child_process";
 import * as p from "@clack/prompts";
+import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/client";
 import { config } from "../config.js";
 
 const sessions: Map<string, string> = new Map();
+const queues: Map<string, Promise<void>> = new Map();
 
-function extractSessionId(output: string): string | null {
-  const lines = output.trim().split("\n");
-  for (const line of lines) {
-    try {
-      const event = JSON.parse(line);
-      if (event.sessionID) return event.sessionID;
-    } catch {}
-  }
-  return null;
-}
+let client: OpencodeClient | null = null;
 
-function logErrors(output: string) {
-  for (const line of output.trim().split("\n")) {
-    try {
-      const event = JSON.parse(line);
-      if (event.type === "error" || event.error) {
-        const msg = event.error?.data?.message || event.error?.name || "unknown";
-        p.log.error(`OpenCode: ${msg}`);
-      }
-    } catch {}
+function getClient(): OpencodeClient {
+  if (!client) {
+    client = createOpencodeClient({
+      baseUrl: config.opencodeUrl,
+      directory: config.dataDir,
+    });
   }
+  return client;
 }
 
 // Direct Telegram API call as fallback when opencode fails entirely
@@ -55,12 +45,80 @@ export class Brain {
     userName: string,
     files?: string[],
   ): Promise<void> {
+    const prev = queues.get(userName) ?? Promise.resolve();
+    const current = prev.then(() => this.process(userMessage, userName, files));
+    queues.set(userName, current);
+    await current;
+  }
+
+  private async process(
+    userMessage: string,
+    userName: string,
+    files?: string[],
+  ): Promise<void> {
     try {
       p.log.step(`${userName} → thinking...`);
-      const raw = await this.callOpenCode(userMessage, userName, files);
 
-      const sessionId = extractSessionId(raw);
-      if (sessionId) sessions.set(userName, sessionId);
+      const oc = getClient();
+      let sessionId = sessions.get(userName);
+
+      // Create session if needed
+      if (!sessionId) {
+        const res = await oc.session.create({
+          body: { title: `Steve - ${userName}` },
+          query: { directory: config.dataDir },
+        });
+        if (res.data) {
+          sessionId = res.data.id;
+          sessions.set(userName, sessionId);
+        } else {
+          throw new Error("Failed to create session");
+        }
+      }
+
+      // Build message parts
+      const parts: Array<{ type: "text"; text: string } | { type: "file"; mime: string; url: string }> = [
+        { type: "text", text: `[${userName}]: ${userMessage}` },
+      ];
+
+      if (files?.length) {
+        for (const file of files) {
+          const ext = file.split(".").pop()?.toLowerCase() || "jpg";
+          const mimeMap: Record<string, string> = {
+            jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+            gif: "image/gif", webp: "image/webp", pdf: "application/pdf",
+          };
+          parts.push({
+            type: "file",
+            mime: mimeMap[ext] || "application/octet-stream",
+            url: `file://${file}`,
+          });
+        }
+      }
+
+      // Send prompt (fire-and-forget: opencode responds via MCP send_telegram_message)
+      const res = await oc.session.prompt({
+        path: { id: sessionId },
+        body: {
+          parts,
+          model: {
+            providerID: config.model.split("/")[0],
+            modelID: config.model.split("/")[1],
+          },
+        },
+        query: { directory: config.dataDir },
+      });
+
+      if (res.error) {
+        // Session might have expired, try creating a new one
+        if (res.response?.status === 404 || res.response?.status === 400) {
+          p.log.warn(`Session expired for ${userName}, creating new one...`);
+          sessions.delete(userName);
+          // Retry once with a new session
+          return this.process(userMessage, userName, files);
+        }
+        throw new Error(`OpenCode error: ${JSON.stringify(res.error)}`);
+      }
 
       p.log.success(`${userName} → replied`);
     } catch (error) {
@@ -70,64 +128,6 @@ export class Brain {
         "Something went wrong on my end. Give me a moment and try again.",
       );
     }
-  }
-
-  private callOpenCode(message: string, userName: string, files?: string[]): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const args = [
-        "run",
-        "--format", "json",
-        "--dir", config.dataDir,
-        "--model", config.model,
-      ];
-
-      const sessionId = sessions.get(userName);
-      if (sessionId) {
-        args.push("--session", sessionId);
-      }
-
-      if (files?.length) {
-        for (const file of files) {
-          args.push("--file", file);
-        }
-      }
-
-      args.push("--", `[${userName}]: ${message}`);
-
-      const proc = spawn("opencode", args, {
-        stdio: ["ignore", "pipe", "pipe"],
-        timeout: 120_000,
-      });
-
-      let stdout = "";
-      let stderr = "";
-
-      proc.stdout.on("data", (data: Buffer) => {
-        stdout += data.toString();
-      });
-
-      proc.stderr.on("data", (data: Buffer) => {
-        stderr += data.toString();
-      });
-
-      proc.on("close", (code) => {
-        if (stderr) {
-          p.log.warn(stderr.substring(0, 200).trim());
-        }
-        if (stdout) {
-          logErrors(stdout);
-        }
-        if (code !== 0 && !stdout) {
-          reject(new Error(`opencode exited with code ${code}`));
-          return;
-        }
-        resolve(stdout);
-      });
-
-      proc.on("error", (err) => {
-        reject(err);
-      });
-    });
   }
 
   stopAll() {

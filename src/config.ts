@@ -8,6 +8,12 @@ const projectRoot = resolve(__dirname, "..");
 const steveDir = process.env.STEVE_DIR || join(homedir(), ".steve");
 const configPath = join(steveDir, "config.json");
 
+const isDocker = process.env.STEVE_DOCKER === "1";
+const vaultPath = join(isDocker ? "/vault" : steveDir, "secrets.enc");
+const opencodeUrl = process.env.OPENCODE_URL || "http://localhost:3456";
+const mcpPort = Number(process.env.STEVE_MCP_PORT) || 3100;
+const webPort = Number(process.env.STEVE_WEB_PORT) || 3000;
+
 // users map: { "telegram_id": "Name" }
 type UsersMap = Record<string, string>;
 
@@ -25,6 +31,11 @@ interface SteveConfig {
   skillsDir: string;
   defaultsDir: string;
   defaultSkillsDir: string;
+  isDocker: boolean;
+  vaultPath: string;
+  opencodeUrl: string;
+  mcpPort: number;
+  webPort: number;
 }
 
 function loadConfig(): SteveConfig {
@@ -55,6 +66,11 @@ function loadConfig(): SteveConfig {
     skillsDir: join(steveDir, "skills"),
     defaultsDir: join(projectRoot, "defaults"),
     defaultSkillsDir: join(projectRoot, "defaults/skills"),
+    isDocker,
+    vaultPath,
+    opencodeUrl,
+    mcpPort,
+    webPort,
   });
 }
 

@@ -1,96 +1,55 @@
 ---
 name: Withings
-description: Sync weight and body composition data from the user's Withings scale. Use when the user wants to log measurements from Withings, sync their scale data, or check recent weight/body fat readings.
+description: Sync weight and body composition data from the user's Withings scale. Use when the user mentions weight, scale, body fat, or Withings.
 per_user: true
 requires:
-  bins: [curl, jq, python3]
+  bins: [curl, jq]
 ---
 
-## Withings Skill
+## Setup
 
-Fetches weight and body composition data from the Withings API and logs it to the user's body-measurements.md file.
+If fetch-measurements.sh fails with "Missing STEVE_CRED":
 
-### Activation triggers
-- "sync from Withings"
-- "log my weight from Withings"
-- "pull my scale data"
-- "what does my scale say"
-- Any request to get or sync measurements from Withings
+1. Call `get_secret_manager_url` to get the secret manager link
+2. Tell the user to:
+   - Create a Withings developer app at https://developer.withings.com
+   - Set the callback URL to the same host as the secret manager, port 3000: `http://<host-ip>:3000/callback`
+   - Add `client_id` and `client_secret` in the secret manager under `{userName}/withings`
+3. Wait for the user to confirm they've added the credentials
 
----
-
-### Step 1 - Check credentials
-
-Check for API credentials:
+Once credentials are saved, run the auth flow:
 ```
-/Users/robertbrunhage/projects/steve/scripts/credential.sh has "{userName}" "withings"
+run_script: skills/withings/scripts/auth.sh
+args: ["{userName}"]
 ```
 
-If missing: walk the user through creating a Withings developer app (already done for Robert - credentials are stored).
+The script outputs a message with an authorization URL. Send that URL to the user via Telegram. They tap it, approve on Withings, and the script automatically captures the callback and returns the tokens.
 
----
+Save the returned tokens (access_token, refresh_token, expires_at) to the vault under `{userName}/withings-tokens` using the vault set endpoint or secret manager.
 
-### Step 2 - Check for OAuth tokens
+## Usage
 
-Check if tokens exist:
+Fetch the latest measurements:
 ```
-/Users/robertbrunhage/projects/steve/scripts/credential.sh has "{userName}" "withings-tokens"
-```
-
-If tokens are missing, the user needs to authorize. Run the auth flow:
-```
-bash /Users/robertbrunhage/projects/steve/data/skills/withings/scripts/auth.sh "{userName}"
+run_script: skills/withings/scripts/fetch-measurements.sh
+args: ["{userName}"]
 ```
 
-This will:
-1. Open the Withings authorization page in the browser
-2. Start a local server to capture the OAuth callback
-3. Exchange the code for tokens and save them to the Keychain
-
-Tell the user: "Opening Withings in your browser - just approve access and you're done."
-
----
-
-### Step 3 - Fetch measurements
-
-Run:
+If result is `{"error":"token_expired"}`, refresh first:
 ```
-bash /Users/robertbrunhage/projects/steve/data/skills/withings/scripts/fetch-measurements.sh "{userName}"
+run_script: skills/withings/scripts/refresh-token.sh
+args: ["{userName}"]
 ```
+Then save the new tokens to `{userName}/withings-tokens` and retry the fetch.
 
-The script outputs JSON. If it returns `{"error":"token_expired"}`, run the refresh script first:
-```
-bash /Users/robertbrunhage/projects/steve/data/skills/withings/scripts/refresh-token.sh "{userName}"
-```
-Then retry the fetch.
+## Output
 
----
+The fetch script returns JSON with available fields: date, weight_kg, fat_ratio, fat_free_mass_kg, muscle_mass_kg, bone_mass_kg. Only fields the scale measured are included.
 
-### Step 4 - Parse and log
+Compare with previous data and call out changes.
 
-The fetch script outputs JSON like:
-```json
-{
-  "date": "2026-03-24",
-  "weight_kg": 82.5,
-  "fat_ratio": 18.2,
-  "muscle_mass_kg": 65.1,
-  "bone_mass_kg": 3.2,
-  "fat_free_mass_kg": 67.3
-}
-```
+## Error handling
 
-Only fields present in the response should be logged (Withings only returns what the scale measured).
-
-Append this as a new entry to `memory/{userName}/body-measurements.md` using the same format as existing entries.
-
-Then compare with the previous entry and call out any notable changes (weight delta, fat % change, etc.).
-
----
-
-### Error handling
-
-- **401 / token_expired**: Run refresh-token.sh, then retry
-- **Re-auth needed** (refresh also fails): Delete the tokens entry and run auth.sh again
-- **No recent measurements**: Tell the user "No measurements found in the last 30 days - have you stepped on the scale recently?"
-- **Port 8765 in use**: Tell the user to close whatever is using that port and try again
+- **token_expired**: Run refresh-token.sh, save new tokens, retry fetch
+- **Refresh also fails**: Delete `{userName}/withings-tokens` from the vault and run auth.sh again
+- **No recent measurements**: Tell the user no measurements found in the last 30 days

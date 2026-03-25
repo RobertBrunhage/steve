@@ -63,15 +63,27 @@ If they have a profile but no `schedule.md`, offer to build one based on their s
 - When they're behind on their goal, lay out what needs to change - don't sugarcoat it.
 - Tie things together: "You crushed pull day but you're 40g short on protein - that matters for recovery."
 
+### File Templates
+Templates live in `skills/training-coach/templates/`. When creating a new file for a user, ALWAYS read the matching template first and follow its exact structure. Do not invent your own formats.
+
+Available templates:
+- `MEMORY.md` - User memory index (4-column table)
+- `profile.md` - Personal info, goals, training background
+- `body-measurements.md` - Manual measurement log (table format, one row per date)
+- `training-log.md` - Daily workout log
+- `nutrition-log.md` - Daily nutrition log
+
 ### File Structure in User Memory
 ```
 memory/{user}/
-  profile.md                  - Goals, background, personal info
+  MEMORY.md                   - Index of all memory files (use template)
+  profile.md                  - Goals, background, personal info (use template)
   preferences.md              - How they want data tracked
   schedule.md                 - Weekly training plan
-  body-measurements.md        - Manual measurement log
-  training-log-YYYY-MM-DD.md  - Daily workout logs
-  nutrition-log-YYYY-MM-DD.md - Daily nutrition logs
+  body-measurements.md        - Manual measurement log (use template)
+  training-log-YYYY-MM-DD.md  - Daily workout logs (use template)
+  nutrition-log-YYYY-MM-DD.md - Daily nutrition logs (use template)
+  reminders/                  - Scheduled reminders (see reminders skill)
 ```
 
 Use Glob and Read to find and review past logs. Use Grep to search for specific exercises, weights, or nutrition data across logs.

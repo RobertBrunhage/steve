@@ -1,15 +1,13 @@
 #!/bin/bash
 # Fetch latest body measurements from Withings API
 # Usage: fetch-measurements.sh <userName>
-# Outputs JSON with the most recent measurement set
+# Credentials injected as STEVE_CRED_* env vars by the MCP run_script tool
 set -euo pipefail
 
 USERNAME="${1:?Usage: fetch-measurements.sh <userName>}"
-CRED_SCRIPT="/Users/robertbrunhage/projects/steve/scripts/credential.sh"
 
-TOKENS=$("$CRED_SCRIPT" get "$USERNAME" "withings-tokens")
-ACCESS_TOKEN=$(echo "$TOKENS" | jq -r '.access_token')
-EXPIRES_AT=$(echo "$TOKENS" | jq -r '.expires_at')
+ACCESS_TOKEN="${STEVE_CRED_ACCESS_TOKEN:?Missing STEVE_CRED_ACCESS_TOKEN}"
+EXPIRES_AT="${STEVE_CRED_EXPIRES_AT:-0}"
 NOW=$(date +%s)
 
 # Check token expiry (with 5 min buffer)

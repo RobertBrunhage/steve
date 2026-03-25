@@ -1,47 +1,40 @@
 #!/bin/bash
 # Withings OAuth 2.0 authorization flow
 # Usage: auth.sh <userName>
+# Credentials injected as STEVE_CRED_* env vars by the MCP run_script tool
 set -euo pipefail
 
 USERNAME="${1:?Usage: auth.sh <userName>}"
-CRED_SCRIPT="/Users/robertbrunhage/projects/steve/scripts/credential.sh"
 
-# Get client credentials
-CREDS=$("$CRED_SCRIPT" get "$USERNAME" "withings")
-CLIENT_ID=$(echo "$CREDS" | jq -r '.client_id')
-CLIENT_SECRET=$(echo "$CREDS" | jq -r '.client_secret')
-REDIRECT_URI="http://localhost:8765/callback"
+CLIENT_ID="${STEVE_CRED_CLIENT_ID:?Missing STEVE_CRED_CLIENT_ID}"
+CLIENT_SECRET="${STEVE_CRED_CLIENT_SECRET:?Missing STEVE_CRED_CLIENT_SECRET}"
+
+# Callback is handled by the Steve web server
+HOST_IP="${STEVE_HOST_IP:-localhost}"
+CALLBACK_PORT="${STEVE_WEB_PORT:-3000}"
+REDIRECT_URI="http://${HOST_IP}:${CALLBACK_PORT}/callback"
+ENCODED_REDIRECT=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${REDIRECT_URI}', safe=''))")
 
 # Build authorization URL
-AUTH_URL="https://account.withings.com/oauth2_user/authorize2?response_type=code&client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&scope=user.metrics&state=steve"
+AUTH_URL="https://account.withings.com/oauth2_user/authorize2?response_type=code&client_id=${CLIENT_ID}&redirect_uri=${ENCODED_REDIRECT}&scope=user.metrics&state=steve"
 
-echo "Opening browser for Withings authorization..."
-open "$AUTH_URL"
+echo "Authorize Withings by opening this link: ${AUTH_URL}"
 
-# Start local server to capture the callback and extract the code
-CODE=$(python3 - <<'PYEOF'
-import http.server, urllib.parse, sys
-
-class Handler(http.server.BaseHTTPRequestHandler):
-    code = None
-    def do_GET(self):
-        params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        Handler.code = params.get('code', [''])[0]
-        self.send_response(200)
-        self.send_header('Content-type', 'text/html')
-        self.end_headers()
-        self.wfile.write(b'<html><body style="font-family:sans-serif;padding:40px"><h2>Done! Return to Steve.</h2><p>You can close this tab.</p></body></html>')
-    def log_message(self, *args):
-        pass
-
-server = http.server.HTTPServer(('localhost', 8765), Handler)
-server.handle_request()
-print(Handler.code)
-PYEOF
-)
+# Poll for the OAuth code (web server captures it at /callback)
+CODE=""
+for i in $(seq 1 60); do
+  RESULT=$(curl -sf "http://localhost:${CALLBACK_PORT}/oauth/code" 2>/dev/null || true)
+  if [[ -n "$RESULT" ]]; then
+    CODE=$(echo "$RESULT" | jq -r '.code // empty')
+    if [[ -n "$CODE" ]]; then
+      break
+    fi
+  fi
+  sleep 2
+done
 
 if [[ -z "$CODE" ]]; then
-  echo '{"error":"no_code","message":"Did not receive authorization code"}' >&2
+  echo '{"error":"timeout","message":"Did not receive authorization code within 2 minutes"}' >&2
   exit 1
 fi
 
@@ -66,7 +59,5 @@ REFRESH_TOKEN=$(echo "$RESPONSE" | jq -r '.body.refresh_token')
 EXPIRES_IN=$(echo "$RESPONSE" | jq -r '.body.expires_in')
 EXPIRES_AT=$(( $(date +%s) + EXPIRES_IN ))
 
-"$CRED_SCRIPT" set "$USERNAME" "withings-tokens" \
-  "{\"access_token\":\"${ACCESS_TOKEN}\",\"refresh_token\":\"${REFRESH_TOKEN}\",\"expires_at\":${EXPIRES_AT}}"
-
-echo '{"success":true,"message":"Authorization complete. Tokens saved."}'
+# Output tokens as JSON so the caller can update the vault
+echo "{\"success\":true,\"access_token\":\"${ACCESS_TOKEN}\",\"refresh_token\":\"${REFRESH_TOKEN}\",\"expires_at\":${EXPIRES_AT}}"

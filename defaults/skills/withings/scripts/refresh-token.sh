@@ -1,17 +1,14 @@
 #!/bin/bash
 # Refresh Withings access token using the stored refresh token
 # Usage: refresh-token.sh <userName>
+# Credentials injected as STEVE_CRED_* env vars by the MCP run_script tool
 set -euo pipefail
 
 USERNAME="${1:?Usage: refresh-token.sh <userName>}"
-CRED_SCRIPT="/Users/robertbrunhage/projects/steve/scripts/credential.sh"
 
-CREDS=$("$CRED_SCRIPT" get "$USERNAME" "withings")
-CLIENT_ID=$(echo "$CREDS" | jq -r '.client_id')
-CLIENT_SECRET=$(echo "$CREDS" | jq -r '.client_secret')
-
-TOKENS=$("$CRED_SCRIPT" get "$USERNAME" "withings-tokens")
-REFRESH_TOKEN=$(echo "$TOKENS" | jq -r '.refresh_token')
+CLIENT_ID="${STEVE_CRED_CLIENT_ID:?Missing STEVE_CRED_CLIENT_ID}"
+CLIENT_SECRET="${STEVE_CRED_CLIENT_SECRET:?Missing STEVE_CRED_CLIENT_SECRET}"
+REFRESH_TOKEN="${STEVE_CRED_REFRESH_TOKEN:?Missing STEVE_CRED_REFRESH_TOKEN}"
 
 RESPONSE=$(curl -s -X POST "https://wbsapi.withings.net/v2/oauth2" \
   -H "Content-Type: application/x-www-form-urlencoded" \
@@ -32,7 +29,5 @@ NEW_REFRESH_TOKEN=$(echo "$RESPONSE" | jq -r '.body.refresh_token')
 EXPIRES_IN=$(echo "$RESPONSE" | jq -r '.body.expires_in')
 EXPIRES_AT=$(( $(date +%s) + EXPIRES_IN ))
 
-"$CRED_SCRIPT" set "$USERNAME" "withings-tokens" \
-  "{\"access_token\":\"${ACCESS_TOKEN}\",\"refresh_token\":\"${NEW_REFRESH_TOKEN}\",\"expires_at\":${EXPIRES_AT}}"
-
-echo '{"success":true,"message":"Token refreshed."}'
+# Output new tokens as JSON so the caller can update the vault
+echo "{\"success\":true,\"access_token\":\"${ACCESS_TOKEN}\",\"refresh_token\":\"${NEW_REFRESH_TOKEN}\",\"expires_at\":${EXPIRES_AT}}"
