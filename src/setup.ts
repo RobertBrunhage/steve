@@ -24,7 +24,6 @@ function syncSkills() {
   if (!existsSync(src)) return;
 
   for (const entry of readdirSync(src)) {
-    // Only overwrite default skills, leave AI-created ones alone
     cpSync(join(src, entry), join(config.skillsDir, entry), { recursive: true });
   }
 }

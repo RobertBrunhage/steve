@@ -9,7 +9,7 @@ import { startScheduler } from "./scheduler.js";
 import { createMcpServerFactory } from "./mcp/server.js";
 import { startMcpHttpServer } from "./mcp/transport.js";
 import { startWebServer } from "./web/index.js";
-import { setTelegramConnected, setVaultSecretCount } from "./health.js";
+import { setTelegramConnected, setVault } from "./health.js";
 import { TelegramChannel } from "./channels/telegram.js";
 import { registerChannel } from "./channels/index.js";
 
@@ -154,7 +154,7 @@ async function startServices(vault: any, botToken: string, users: Record<string,
   await startMcpHttpServer(mcpFactory, config.mcpPort);
   p.log.success(`MCP server on :${config.mcpPort}`);
 
-  setVaultSecretCount(vault.list().length);
+  setVault(vault);
 
   // Start services
   const brain = new Brain();

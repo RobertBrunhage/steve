@@ -1,4 +1,5 @@
 import { getRuntime } from "./config.js";
+import type { Vault } from "./vault/index.js";
 
 export interface HealthStatus {
   healthy: boolean;
@@ -14,11 +15,11 @@ export interface HealthStatus {
 const startTime = Date.now();
 let reminderCount = 0;
 let telegramConnected = false;
-let vaultSecretCount = 0;
+let vault: Vault | null = null;
 
 export function setReminderCount(count: number) { reminderCount = count; }
 export function setTelegramConnected(connected: boolean) { telegramConnected = connected; }
-export function setVaultSecretCount(count: number) { vaultSecretCount = count; }
+export function setVault(v: Vault) { vault = v; }
 
 async function checkOpenCode(userName: string): Promise<{ status: "ok" | "error"; message?: string }> {
   const url = `http://opencode-${userName.toLowerCase()}:3456`;
@@ -31,7 +32,6 @@ async function checkOpenCode(userName: string): Promise<{ status: "ok" | "error"
 }
 
 export async function getHealth(): Promise<HealthStatus> {
-  // Check OpenCode per-user
   const opencode: Record<string, { status: "ok" | "error"; message?: string }> = {};
   try {
     const rt = getRuntime();
@@ -49,8 +49,9 @@ export async function getHealth(): Promise<HealthStatus> {
     ? { status: telegramConnected ? "ok" : "error", message: telegramConnected ? undefined : "not connected" }
     : { status: "not_configured" };
 
-  const vault: HealthStatus["components"]["vault"] = vaultSecretCount > 0
-    ? { status: "ok", secrets: vaultSecretCount }
+  const secretCount = vault ? vault.list().length : 0;
+  const vaultStatus: HealthStatus["components"]["vault"] = secretCount > 0
+    ? { status: "ok", secrets: secretCount }
     : { status: "not_configured", secrets: 0 };
 
   const scheduler: HealthStatus["components"]["scheduler"] = { status: "ok", reminders: reminderCount };
@@ -61,6 +62,6 @@ export async function getHealth(): Promise<HealthStatus> {
   return {
     healthy,
     uptime: Math.floor((Date.now() - startTime) / 1000),
-    components: { opencode, telegram, vault, scheduler },
+    components: { opencode, telegram, vault: vaultStatus, scheduler },
   };
 }
