@@ -1,63 +1,21 @@
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
 import * as p from "@clack/prompts";
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/client";
-import { config, getUserDir, getRuntime } from "../config.js";
+import { getRuntime, getUserModel } from "../config.js";
 
 const sessions: Map<string, string> = new Map();
 const queues: Map<string, Promise<void>> = new Map();
 const clients: Map<string, OpencodeClient> = new Map();
 
-const SESSION_FILE = join(config.dataDir, "sessions.json");
-const RESET_HOUR = 4; // Reset sessions daily at 4am
-
 function getClientForUser(userName: string): OpencodeClient {
   const name = userName.toLowerCase();
   if (!clients.has(name)) {
-    // In Docker: per-user container. Locally: shared instance.
-    const baseUrl = config.isDocker
-      ? `http://opencode-${name}:3456`
-      : config.opencodeUrl;
-
     clients.set(name, createOpencodeClient({
-      baseUrl,
+      baseUrl: `http://opencode-${name}:3456`,
       directory: "/data",
     }));
   }
   return clients.get(name)!;
 }
-
-function loadSessions() {
-  try {
-    if (existsSync(SESSION_FILE)) {
-      const data = JSON.parse(readFileSync(SESSION_FILE, "utf-8"));
-      if (data.sessions && (!data.resetAfter || Date.now() < data.resetAfter)) {
-        for (const [k, v] of Object.entries(data.sessions)) {
-          sessions.set(k, v as string);
-        }
-        p.log.info(`Restored ${sessions.size} session(s)`);
-      }
-    }
-  } catch {}
-}
-
-function saveSessions() {
-  try {
-    const now = new Date();
-    const nextReset = new Date(now);
-    nextReset.setHours(RESET_HOUR, 0, 0, 0);
-    if (nextReset.getTime() <= now.getTime()) {
-      nextReset.setDate(nextReset.getDate() + 1);
-    }
-    writeFileSync(SESSION_FILE, JSON.stringify({
-      sessions: Object.fromEntries(sessions),
-      resetAfter: nextReset.getTime(),
-    }), "utf-8");
-  } catch {}
-}
-
-// Load persisted sessions on module init
-loadSessions();
 
 // Direct Telegram API call as fallback when opencode fails entirely
 async function sendFallback(userName: string, message: string) {
@@ -103,7 +61,7 @@ export class Brain {
       p.log.step(`${userName} → thinking...`);
 
       const oc = getClientForUser(userName);
-      const userDir = config.isDocker ? "/data" : getUserDir(userName);
+      const userDir = "/data";
       let sessionId = sessions.get(userName);
 
       // Create session if needed
@@ -115,7 +73,6 @@ export class Brain {
         if (res.data) {
           sessionId = res.data.id;
           sessions.set(userName, sessionId);
-          saveSessions();
         } else {
           throw new Error("Failed to create session");
         }
@@ -142,7 +99,7 @@ export class Brain {
       }
 
       // Send prompt (fire-and-forget: opencode responds via MCP send_telegram_message)
-      const { model } = getRuntime();
+      const model = getUserModel(userName);
       const res = await oc.session.prompt({
         path: { id: sessionId },
         body: {
@@ -159,7 +116,6 @@ export class Brain {
         if (res.response?.status === 404 || res.response?.status === 400) {
           p.log.warn(`Session expired for ${userName}, creating new one...`);
           sessions.delete(userName);
-          saveSessions();
           return this.process(userMessage, userName, files);
         }
         throw new Error(`OpenCode error: ${JSON.stringify(res.error)}`);
@@ -182,7 +138,7 @@ export class Brain {
   ): Promise<void> {
     try {
       const oc = getClientForUser(userName);
-      const userDir = config.isDocker ? "/data" : getUserDir(userName);
+      const userDir = "/data";
 
       const session = await oc.session.create({
         body: { title: `Steve - ${userName} (isolated)` },
@@ -196,8 +152,8 @@ export class Brain {
         body: {
           parts: [{ type: "text", text: `[${userName}]: ${userMessage}` }],
           model: {
-            providerID: getRuntime().model.split("/")[0],
-            modelID: getRuntime().model.split("/")[1],
+            providerID: getUserModel(userName).split("/")[0],
+            modelID: getUserModel(userName).split("/")[1],
           },
         },
         query: { directory: userDir },
@@ -213,6 +169,6 @@ export class Brain {
 
   stopAll() {
     sessions.clear();
-    saveSessions();
+    clients.clear();
   }
 }

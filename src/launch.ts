@@ -9,7 +9,6 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 function getHostIp(): string {
   try {
-    // macOS — check common interfaces
     for (const iface of ["en0", "en1", "en2", "en3", "en4", "en5"]) {
       try {
         const ip = execSync(`ipconfig getifaddr ${iface} 2>/dev/null`, { encoding: "utf-8" }).trim();
@@ -18,7 +17,6 @@ function getHostIp(): string {
     }
   } catch {}
   try {
-    // Linux
     const ip = execSync("hostname -I 2>/dev/null", { encoding: "utf-8" }).trim().split(" ")[0];
     if (ip) return ip;
   } catch {}
@@ -35,17 +33,26 @@ function generateCompose(userNames: string[]) {
 
   const base = readFileSync(basePath, "utf-8");
 
-  const userServices = userNames.map((name) => `
+  const userServices = userNames.map((name, i) => {
+    const hostPort = 3457 + i;
+    return `
   opencode-${name}:
-    image: ghcr.io/anomalyco/opencode:latest
+    build:
+      context: .
+      dockerfile: opencode.Dockerfile
     container_name: opencode-${name}
     restart: unless-stopped
     command: ["serve", "--port", "3456", "--hostname", "0.0.0.0"]
     working_dir: /data
+    ports:
+      - "${hostPort}:3456"
     volumes:
       - \${STEVE_DATA:-~/.steve}/users/${name}:/data
+      - \${STEVE_DATA:-~/.steve}/skills:/data/skills
+      - \${STEVE_DATA:-~/.steve}/shared:/data/shared
       - opencode-auth:/root/.local/share/opencode
-    networks: [steve-net]`).join("\n");
+    networks: [steve-net]`;
+  }).join("\n");
 
   const composed = base.replace(
     /\nvolumes:/,
@@ -53,6 +60,12 @@ function generateCompose(userNames: string[]) {
   );
 
   writeFileSync(join(projectRoot, "docker-compose.yml"), composed, "utf-8");
+
+  // Write port mapping so the web UI can link to the right OpenCode instance
+  const steveDir = process.env.STEVE_DIR || join(homedir(), ".steve");
+  const portMap: Record<string, number> = {};
+  userNames.forEach((name, i) => { portMap[name] = 3457 + i; });
+  writeFileSync(join(steveDir, "opencode-ports.json"), JSON.stringify(portMap, null, 2), "utf-8");
 }
 
 function sleep(ms: number) {
@@ -86,13 +99,58 @@ function needsAuth(container: string): boolean {
   }
 }
 
+function readUserNames(steveDir: string): string[] {
+  const manifest = join(steveDir, "users.json");
+  if (!existsSync(manifest)) return [];
+  try {
+    const data = JSON.parse(readFileSync(manifest, "utf-8"));
+    return (data.users || []).map((n: string) => n.toLowerCase());
+  } catch {
+    return [];
+  }
+}
+
+async function startOpenCodeContainers(userNames: string[]) {
+  const containers = userNames.map((n) => `opencode-${n}`);
+  if (containers.length === 0) return;
+
+  generateCompose(userNames);
+  const s = p.spinner();
+  s.start(`Starting ${containers.length} agent(s)`);
+  exec(`docker compose up -d ${containers.join(" ")}`, true);
+
+  for (const container of containers) {
+    if (!(await waitForContainer(container))) {
+      p.log.error(`${container} failed to start`);
+    }
+  }
+  s.stop(`${containers.length} agent(s) ready`);
+
+  // Auth check — shared volume means one check covers all
+  if (needsAuth(containers[0])) {
+    p.log.warn("AI provider authentication needed.");
+    exec(`docker compose exec ${containers[0]} opencode auth login`);
+  }
+
+  for (const name of userNames) {
+    p.log.success(`${name} ready`);
+  }
+}
+
 async function main() {
   p.intro("Steve");
 
-  // Vault password
+  const steveDir = process.env.STEVE_DIR || join(homedir(), ".steve");
+  const vaultExists = existsSync(join("/var/run/docker.sock")) // dummy check
+    ? false // will check vault inside container
+    : existsSync(join(steveDir, "secrets.enc")); // won't exist if vault is in Docker volume
+
+  // Password prompt
   let vaultKey = process.env.STEVE_VAULT_KEY;
   if (!vaultKey) {
-    const pw = await p.password({ message: "Vault password" });
+    const pw = await p.password({
+      message: "Password",
+    });
     if (p.isCancel(pw)) {
       p.cancel("Cancelled.");
       process.exit(0);
@@ -103,42 +161,12 @@ async function main() {
   process.env.STEVE_VAULT_KEY = vaultKey;
   process.env.STEVE_HOST_IP = getHostIp();
 
-  // Discover users from the users.json manifest (written by setup.ts on each boot)
-  const steveDir = process.env.STEVE_DIR || join(homedir(), ".steve");
-  let userNames: string[] = [];
-
-  // Try reading the user manifest from the host volume
-  const usersManifest = join(steveDir, "users.json");
-  if (existsSync(usersManifest)) {
-    try {
-      const data = JSON.parse(readFileSync(usersManifest, "utf-8"));
-      userNames = (data.users || []).map((n: string) => n.toLowerCase());
-    } catch {}
-  }
-
-  // If no manifest yet (first run), do a quick container run to generate it
-  if (userNames.length === 0) {
-    try {
-      // Build first so we have the image
-      execSync("docker compose -f docker-compose.base.yml build steve --quiet", { cwd: projectRoot, stdio: "ignore" });
-      // Run setup briefly to create the manifest
-      execSync(
-        `docker compose -f docker-compose.base.yml run --rm --no-deps -e STEVE_VAULT_KEY="${vaultKey}" -e STEVE_DOCKER=1 steve node dist/index.js --setup-only 2>/dev/null || true`,
-        { cwd: projectRoot, stdio: "ignore", timeout: 30000 },
-      );
-      // Try reading again
-      if (existsSync(usersManifest)) {
-        const data = JSON.parse(readFileSync(usersManifest, "utf-8"));
-        userNames = (data.users || []).map((n: string) => n.toLowerCase());
-      }
-    } catch {}
-  }
-
-  // Generate docker-compose.yml with per-user OpenCode containers
-  generateCompose(userNames);
-
+  // Build
   const s = p.spinner();
   s.start("Building");
+  // Generate compose with current users (or base-only if none)
+  let userNames = readUserNames(steveDir);
+  generateCompose(userNames);
   try {
     exec("docker compose build steve --quiet", true);
   } catch {
@@ -147,34 +175,12 @@ async function main() {
   }
   s.stop("Built");
 
-  // Start per-user OpenCode containers
-  const containers = userNames.map((n) => `opencode-${n}`);
-  if (containers.length > 0) {
-    s.start(`Starting ${containers.length} OpenCode container(s)`);
-    exec(`docker compose up -d ${containers.join(" ")}`, true);
-
-    let allReady = true;
-    for (const container of containers) {
-      if (!(await waitForContainer(container))) {
-        p.log.error(`${container} failed to start`);
-        allReady = false;
-      }
-    }
-    if (!allReady) {
-      s.stop("Some OpenCode containers failed");
-      p.log.error("Check logs: docker compose logs");
-      process.exit(1);
-    }
-    s.stop(`${containers.length} OpenCode container(s) ready`);
-
-    // Auth check — shared auth volume means checking one is enough
-    if (needsAuth(containers[0])) {
-      p.log.warn("OpenCode needs authentication.");
-      exec(`docker compose exec ${containers[0]} opencode auth login`);
-    }
+  // OpenCode auth (temp container if we have users but need to check auth)
+  if (userNames.length > 0) {
+    await startOpenCodeContainers(userNames);
   }
 
-  // Start Steve (attached — Ctrl+C stops it)
+  // Start Steve
   p.log.success("Starting Steve...");
 
   const steve = spawn("docker", ["compose", "up", "--no-log-prefix", "steve"], {
@@ -182,6 +188,20 @@ async function main() {
     cwd: projectRoot,
     env: process.env,
   });
+
+  // If no users yet, watch for users.json to appear (setup via web UI)
+  if (userNames.length === 0) {
+    (async () => {
+      while (true) {
+        await sleep(2000);
+        const newUsers = readUserNames(steveDir);
+        if (newUsers.length > 0) {
+          await startOpenCodeContainers(newUsers);
+          break;
+        }
+      }
+    })();
+  }
 
   const shutdown = () => {
     steve.kill();

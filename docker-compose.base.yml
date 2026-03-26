@@ -10,6 +10,7 @@ services:
     volumes:
       - ${STEVE_DATA:-~/.steve}:/data
       - steve-vault:/vault
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - STEVE_DOCKER=1
       - STEVE_VAULT_KEY=${STEVE_VAULT_KEY:-}

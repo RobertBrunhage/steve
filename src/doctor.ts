@@ -13,8 +13,9 @@ async function checkDocker(): Promise<boolean> {
 }
 
 async function checkOpenCode(): Promise<boolean> {
+  // In Docker, we'd need to check per-user containers — just check if any respond
   try {
-    const res = await fetch(config.opencodeUrl, { signal: AbortSignal.timeout(3000) });
+    const res = await fetch("http://localhost:3456", { signal: AbortSignal.timeout(3000) });
     return res.ok;
   } catch {
     return false;
@@ -49,7 +50,7 @@ async function main() {
 
   // OpenCode
   const ocOk = await checkOpenCode();
-  checks.push({ name: "OpenCode", ok: ocOk, detail: ocOk ? config.opencodeUrl : "not reachable" });
+  checks.push({ name: "OpenCode", ok: ocOk, detail: ocOk ? "reachable" : "not reachable" });
 
   // Telegram — can't validate without vault password, just check if vault exists
   checks.push({ name: "Telegram bot", ok: vaultOk, detail: vaultOk ? "credentials in vault" : "vault not found" });

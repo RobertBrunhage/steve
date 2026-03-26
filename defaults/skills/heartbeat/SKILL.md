@@ -13,7 +13,7 @@ For each item:
 - If something needs action, message the user about it
 - If nothing needs attention, do NOT message the user at all
 
-If no items need attention, respond with exactly `HEARTBEAT_OK` via `send_telegram_message`. This signals that the heartbeat completed with nothing to report. The system will suppress this message.
+If no items need attention, respond with exactly `HEARTBEAT_OK` via `send_message`. This signals that the heartbeat completed with nothing to report. The system will suppress this message.
 
 ## HEARTBEAT.md Format
 

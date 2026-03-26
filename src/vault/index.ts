@@ -63,7 +63,7 @@ export class Vault {
   getByPrefix(prefix: string): Record<string, Record<string, unknown>> {
     const result: Record<string, Record<string, unknown>> = {};
     for (const [key, value] of Object.entries(this.data)) {
-      if (key.startsWith(prefix)) {
+      if (key.toLowerCase().startsWith(prefix.toLowerCase())) {
         result[key] = value;
       }
     }

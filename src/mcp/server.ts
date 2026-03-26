@@ -5,6 +5,7 @@ import { execFile } from "node:child_process";
 import { z } from "zod";
 import type { Vault } from "../vault/index.js";
 import type { Channel } from "../channels/index.js";
+import { config } from "../config.js";
 import { loadUserJobs, saveUserJobs, type Job } from "../scheduler.js";
 
 interface McpConfig {
@@ -28,24 +29,24 @@ function discoverProjectScripts(projectRoot: string): Set<string> {
   return scripts;
 }
 
-/** Check if a script is inside a skill's scripts/ directory (dynamic, allows new skills) */
+/** Check if a script is inside a skill's scripts/ directory */
 function isSkillScript(scriptPath: string, dataDir: string): boolean {
   const resolved = resolve(scriptPath);
 
-  // Check under users/*/skills/*/scripts/*.sh (per-user workspaces)
-  const usersDir = resolve(join(dataDir, "users"));
-  if (resolved.startsWith(usersDir + "/")) {
-    const relative = resolved.slice(usersDir.length + 1); // e.g. "robert/skills/withings/scripts/fetch.sh"
-    const parts = relative.split("/");
-    return parts.length === 5 && parts[1] === "skills" && parts[3] === "scripts" && parts[4].endsWith(".sh");
-  }
-
-  // Legacy: check under skills/*/scripts/*.sh (flat structure)
+  // Check under shared skills dir: skills/*/scripts/*.sh
   const skillsDir = resolve(join(dataDir, "skills"));
   if (resolved.startsWith(skillsDir + "/")) {
     const relative = resolved.slice(skillsDir.length + 1);
     const parts = relative.split("/");
     return parts.length === 3 && parts[1] === "scripts" && parts[2].endsWith(".sh");
+  }
+
+  // Check under user workspaces (symlinks resolve to shared skills, but path may come as users/*/skills/*)
+  const usersDir = resolve(join(dataDir, "users"));
+  if (resolved.startsWith(usersDir + "/")) {
+    const relative = resolved.slice(usersDir.length + 1);
+    const parts = relative.split("/");
+    return parts.length === 5 && parts[1] === "skills" && parts[3] === "scripts" && parts[4].endsWith(".sh");
   }
 
   return false;
@@ -81,18 +82,21 @@ function buildCredEnv(vault: Vault | null, userName: string, skill: string | nul
   return env;
 }
 
-export function createMcpServer(mcpConfig: McpConfig, vault: Vault | null): McpServer {
+export type McpServerFactory = () => McpServer;
+
+export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null): McpServerFactory {
   const { channel, projectRoot, dataDir } = mcpConfig;
   const projectScripts = discoverProjectScripts(projectRoot);
 
+  return () => {
   const server = new McpServer({
     name: "steve",
     version: "1.0.0",
   });
 
-  server.registerTool("send_telegram_message", {
+  server.registerTool("send_message", {
     description:
-      "Send a message to a user on Telegram. Use this to respond to users.",
+      "Send a message to a user. Use this to respond to users. This is the ONLY way to communicate with users.",
     inputSchema: {
       userName: z.string().describe("The name of the user to send the message to"),
       message: z.string().describe("The message text to send (supports HTML)"),
@@ -170,9 +174,9 @@ export function createMcpServer(mcpConfig: McpConfig, vault: Vault | null): McpS
     return { content: [{ type: "text", text: "Invalid action or missing parameters" }], isError: true };
   });
 
-  server.registerTool("get_secret_manager_url", {
+  server.registerTool("get_secret_url", {
     description:
-      "Get the URL of the Steve secret manager web UI. Use this when you need to direct a user to add or manage their API keys/credentials.",
+      "Get the URL of the secret manager web UI. Use this when you need to direct a user to add or manage their API keys/credentials.",
     inputSchema: {},
   }, async () => {
     return {
@@ -188,7 +192,18 @@ export function createMcpServer(mcpConfig: McpConfig, vault: Vault | null): McpS
       args: z.array(z.string()).optional().describe("Arguments to pass to the script"),
     },
   }, async ({ script, args }) => {
-    const resolved = resolve(script);
+    const userName = args?.[0]?.toLowerCase() || "";
+
+    // Normalize script path: OpenCode sends paths relative to its container
+    // (e.g. "skills/withings/scripts/setup.sh" or "/data/skills/withings/scripts/setup.sh")
+    // Skills are shared at /data/skills/
+    let scriptPath = script;
+    const skillsMatch = script.match(/(?:^|\/)(skills\/.+)$/);
+    if (skillsMatch) {
+      scriptPath = join(dataDir, skillsMatch[1]);
+    }
+
+    const resolved = resolve(scriptPath);
     if (!projectScripts.has(resolved) && !isSkillScript(resolved, dataDir)) {
       return {
         content: [{ type: "text", text: `Error: Script not allowed. Must be in project scripts/ or skills/*/scripts/.` }],
@@ -196,31 +211,26 @@ export function createMcpServer(mcpConfig: McpConfig, vault: Vault | null): McpS
       };
     }
 
-    if (!existsSync(script)) {
+    if (!existsSync(resolved)) {
       return {
         content: [{ type: "text", text: `Error: Script not found: ${script}` }],
         isError: true,
       };
     }
 
-    // Extract userName from args (first arg is typically userName)
-    const userName = args?.[0] || "";
-    const skill = getSkillFromPath(script);
+    const skill = getSkillFromPath(resolved);
     const credEnv = buildCredEnv(vault, userName, skill);
 
-    // Auth scripts need longer timeout (user interaction)
-    const isAuthScript = basename(script) === "auth.sh";
-    const timeout = isAuthScript ? 180_000 : 30_000;
-
     return new Promise((res) => {
-      execFile("bash", [script, ...(args || [])], {
-        timeout,
+      execFile("bash", [resolved, ...(args || [])], {
+        timeout: 300_000,
         env: {
           ...process.env,
           STEVE_PROJECT_ROOT: projectRoot,
           STEVE_DATA_DIR: dataDir,
           STEVE_HOST_IP: new URL(mcpConfig.secretManagerUrl).hostname,
           STEVE_WEB_PORT: String(new URL(mcpConfig.secretManagerUrl).port || "3000"),
+          STEVE_MCP_PORT: String(config.mcpPort),
           ...credEnv,
         },
       }, (error, stdout, stderr) => {
@@ -240,5 +250,6 @@ export function createMcpServer(mcpConfig: McpConfig, vault: Vault | null): McpS
   });
 
   return server;
+  };
 }
 

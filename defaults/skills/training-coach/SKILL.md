@@ -83,7 +83,6 @@ memory/
   body-measurements.md        - Manual measurement log (use template)
   training-log-YYYY-MM-DD.md  - Daily workout logs (use template)
   nutrition-log-YYYY-MM-DD.md - Daily nutrition logs (use template)
-  reminders/                  - Scheduled reminders (see reminders skill)
 ```
 
 Use Glob and Read to find and review past logs. Use Grep to search for specific exercises, weights, or nutrition data across logs.

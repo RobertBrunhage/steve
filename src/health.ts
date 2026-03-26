@@ -1,4 +1,4 @@
-import { config, getRuntime } from "./config.js";
+import { getRuntime } from "./config.js";
 
 export interface HealthStatus {
   healthy: boolean;
@@ -21,9 +21,7 @@ export function setTelegramConnected(connected: boolean) { telegramConnected = c
 export function setVaultSecretCount(count: number) { vaultSecretCount = count; }
 
 async function checkOpenCode(userName: string): Promise<{ status: "ok" | "error"; message?: string }> {
-  const url = config.isDocker
-    ? `http://opencode-${userName.toLowerCase()}:3456`
-    : config.opencodeUrl;
+  const url = `http://opencode-${userName.toLowerCase()}:3456`;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
     return res.ok ? { status: "ok" } : { status: "error", message: `HTTP ${res.status}` };

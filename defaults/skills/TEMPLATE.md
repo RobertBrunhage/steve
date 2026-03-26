@@ -70,7 +70,7 @@ Example: vault key `Robert/weather` with value `{"api_key": "abc123"}` becomes `
 ### Setup flow
 
 When credentials are missing:
-1. Call `get_secret_manager_url` to get the secret manager link
+1. Call `get_secret_url` to get the secret manager link
 2. Tell the user to open it and add their credentials under `{userName}/{skill-name}`
 3. Once confirmed, run the skill's scripts normally (credentials are injected automatically)
 
@@ -94,7 +94,7 @@ requires:
 
 ## Setup
 If the fetch script fails with "Missing STEVE_CRED":
-1. Call `get_secret_manager_url` to get the link
+1. Call `get_secret_url` to get the link
 2. Tell the user to add their API key under `{userName}/weather` with field `api_key`
 3. Once they confirm, retry
 

@@ -5,7 +5,6 @@
   "scripts": {
     "launch": "tsx src/launch.ts",
     "doctor": "tsx src/doctor.ts",
-    "dev": "tsx src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "tsx test/setup.test.ts"

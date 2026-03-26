@@ -1,6 +1,6 @@
 FROM node:22-slim
 
-RUN apt-get update && apt-get install -y git curl jq python3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y git curl jq python3 docker.io && rm -rf /var/lib/apt/lists/*
 RUN npm install -g pnpm
 
 WORKDIR /app
@@ -10,7 +10,9 @@ COPY . .
 RUN pnpm build
 
 # Use existing node user (uid 1000) and set ownership
-RUN mkdir -p /data /vault && chown -R node:node /app /data /vault
+# Add to root group for Docker socket access
+RUN mkdir -p /data /vault && chown -R node:node /app /data /vault \
+    && usermod -aG root node
 
 VOLUME ["/data", "/vault"]
 
