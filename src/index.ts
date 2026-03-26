@@ -151,7 +151,7 @@ async function startServices(vault: any, botToken: string, users: Record<string,
     { channel, projectRoot: config.projectRoot, dataDir: config.dataDir, secretManagerUrl },
     vault,
   );
-  await startMcpHttpServer(mcpFactory, vault, config.mcpPort);
+  await startMcpHttpServer(mcpFactory, config.mcpPort);
   p.log.success(`MCP server on :${config.mcpPort}`);
 
   setVaultSecretCount(vault.list().length);

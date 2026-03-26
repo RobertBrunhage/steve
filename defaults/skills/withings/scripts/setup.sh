@@ -6,7 +6,6 @@ set -euo pipefail
 USERNAME="${1:?Usage: setup.sh <userName>}"
 HOST_IP="${STEVE_HOST_IP:-localhost}"
 WEB_PORT="${STEVE_WEB_PORT:-3000}"
-MCP_PORT="${STEVE_MCP_PORT:-3100}"
 
 # Step 1: Check client credentials
 CLIENT_ID="${STEVE_CRED_CLIENT_ID:-}"
@@ -51,11 +50,7 @@ if [[ -n "$REFRESH_TOKEN" ]]; then
     NEW_EXPIRES_IN=$(echo "$RESPONSE" | jq -r '.body.expires_in')
     NEW_EXPIRES_AT=$(( $(date +%s) + NEW_EXPIRES_IN ))
 
-    curl -sf -X POST "http://localhost:${MCP_PORT}/vault/set" \
-      -H "Content-Type: application/json" \
-      -d "{\"key\":\"${USERNAME}/withings-tokens\",\"value\":{\"access_token\":\"${NEW_ACCESS}\",\"refresh_token\":\"${NEW_REFRESH}\",\"expires_at\":\"${NEW_EXPIRES_AT}\"}}" > /dev/null
-
-    echo '{"status":"ready","message":"Withings tokens refreshed. Setup complete."}'
+    echo "{\"status\":\"ready\",\"message\":\"Withings tokens refreshed. Setup complete.\",\"save_to_vault\":{\"key\":\"${USERNAME}/withings-tokens\",\"value\":{\"access_token\":\"${NEW_ACCESS}\",\"refresh_token\":\"${NEW_REFRESH}\",\"expires_at\":\"${NEW_EXPIRES_AT}\"}}}"
     exit 0
   fi
 fi

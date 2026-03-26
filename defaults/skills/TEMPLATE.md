@@ -81,6 +81,16 @@ When credentials are missing:
 API_KEY="${STEVE_CRED_API_KEY:?Missing STEVE_CRED_API_KEY}"
 ```
 
+### Saving credentials from scripts
+
+If your script produces credentials that need to be stored (e.g., OAuth tokens), include a `save_to_vault` field in the JSON output:
+
+```json
+{"status": "ready", "save_to_vault": {"key": "{userName}/skill-name", "value": {"token": "..."}}}
+```
+
+Steve saves it to the vault automatically and **strips it before the AI sees the output**. The AI only receives `{"status": "ready"}`. NEVER output raw credentials in any other field.
+
 ## Example: API Skill with Auth
 
 ```yaml

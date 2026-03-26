@@ -2,7 +2,6 @@ import { createServer, type Server, type IncomingMessage, type ServerResponse } 
 import { randomUUID } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
-import type { Vault } from "../vault/index.js";
 import type { McpServerFactory } from "./server.js";
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -19,59 +18,11 @@ function readBody(req: IncomingMessage): Promise<string> {
  */
 export async function startMcpHttpServer(
   mcpFactory: McpServerFactory,
-  vault: Vault | null,
   port: number,
 ): Promise<Server> {
   const sessions = new Map<string, StreamableHTTPServerTransport>();
 
   const httpServer = createServer(async (req, res) => {
-    // Internal vault API
-    if (req.url === "/vault/set" && req.method === "POST") {
-      if (!vault) {
-        res.writeHead(503, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "vault not available" }));
-        return;
-      }
-      try {
-        const body = JSON.parse(await readBody(req));
-        if (!body.key || !body.value) {
-          res.writeHead(400, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "key and value required" }));
-          return;
-        }
-        vault.set(body.key, body.value);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true }));
-      } catch {
-        res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "invalid JSON" }));
-      }
-      return;
-    }
-
-    if (req.url === "/vault/get" && req.method === "POST") {
-      if (!vault) {
-        res.writeHead(503, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "vault not available" }));
-        return;
-      }
-      try {
-        const body = JSON.parse(await readBody(req));
-        if (!body.key) {
-          res.writeHead(400, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "key required" }));
-          return;
-        }
-        const value = vault.get(body.key);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ value }));
-      } catch {
-        res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "invalid JSON" }));
-      }
-      return;
-    }
-
     // MCP protocol handler
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
 

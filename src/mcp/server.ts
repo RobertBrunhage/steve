@@ -230,7 +230,6 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
           STEVE_DATA_DIR: dataDir,
           STEVE_HOST_IP: new URL(mcpConfig.secretManagerUrl).hostname,
           STEVE_WEB_PORT: String(new URL(mcpConfig.secretManagerUrl).port || "3000"),
-          STEVE_MCP_PORT: String(config.mcpPort),
           ...credEnv,
         },
       }, (error, stdout, stderr) => {
@@ -242,8 +241,20 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
           return;
         }
 
+        // Handle save_to_vault convention: strip secrets before returning to AI
+        let output = stdout || "(no output)";
+        try {
+          const parsed = JSON.parse(output);
+          if (parsed.save_to_vault && vault) {
+            const { key, value } = parsed.save_to_vault;
+            if (key && value) vault.set(key, value);
+            delete parsed.save_to_vault;
+            output = JSON.stringify(parsed);
+          }
+        } catch {} // not JSON, pass through as-is
+
         res({
-          content: [{ type: "text", text: stdout || "(no output)" }],
+          content: [{ type: "text", text: output }],
         });
       });
     });
