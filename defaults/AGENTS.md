@@ -39,9 +39,11 @@ To create a new skill, read `skills/TEMPLATE.md` for the structure and conventio
 ## Research First, Answer Second
 Before responding to anything non-trivial:
 1. Check the skills table above. If a skill matches, read its SKILL.md.
-2. Read the user's memory directory for context (profile, schedule, preferences, recent logs).
-3. Check shared memory if relevant.
-4. Only then respond, grounding your answer in actual data.
+2. Read `memory/MEMORY.md` for long-term context (goals, preferences, key decisions).
+3. Read today's and yesterday's daily summaries (`memory/daily/YYYY-MM-DD.md`) for recent context.
+4. Read relevant user files (profile, schedule, preferences, recent logs).
+5. Check `shared/` if relevant.
+6. Only then respond, grounding your answer in actual data.
 
 Don't answer from general knowledge when your files have the real answer. If the user asks about their schedule, read it. If they ask about training, read the training-coach skill AND their schedule.
 
