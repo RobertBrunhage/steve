@@ -6,7 +6,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(__dirname, "..");
 const steveDir = process.env.STEVE_DIR || join(homedir(), ".steve");
 
-const vaultDir = "/vault";
+const vaultDir = process.env.STEVE_VAULT_DIR || "/vault";
 const mcpPort = Number(process.env.STEVE_MCP_PORT) || 3100;
 const webPort = Number(process.env.STEVE_WEB_PORT) || 3000;
 

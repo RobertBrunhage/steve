@@ -3,5 +3,5 @@ dist/
 data/
 .env
 opencode.json
-docker-compose.yml
+docker-compose.dev.yml
 steve-backup-*.enc

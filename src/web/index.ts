@@ -3,7 +3,7 @@ import { serve } from "@hono/node-server";
 import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { Vault } from "../vault/index.js";
+import { Vault, initializeVault } from "../vault/index.js";
 import { getHealth } from "../health.js";
 import { config, getUserDir } from "../config.js";
 
@@ -31,10 +31,10 @@ function parseFields(body: Record<string, string | File>): Record<string, string
 }
 
 /** Get field names for each vault key (for dashboard display) */
-function getFieldNames(vault: Vault): Record<string, string[]> {
+function getFieldNames(v: Vault): Record<string, string[]> {
   const result: Record<string, string[]> = {};
-  for (const key of vault.list()) {
-    const val = vault.get(key);
+  for (const key of v.list()) {
+    const val = v.get(key);
     if (val && typeof val === "object") {
       result[key] = Object.keys(val);
     }
@@ -48,7 +48,21 @@ function valueToFields(val: Record<string, unknown> | null): [string, string][] 
   return Object.entries(val).map(([k, v]) => [k, String(v)]);
 }
 
-export function startWebServer(vault: Vault, port: number) {
+/** Detect the compose project name from our own container's labels */
+function getComposeProject(): string {
+  try {
+    const label = execSync(
+      "docker inspect steve --format '{{index .Config.Labels \"com.docker.compose.project\"}}'",
+      { encoding: "utf-8", timeout: 5000 },
+    ).trim();
+    if (label) return label;
+  } catch {}
+  return "steve";
+}
+
+export function startWebServer(vault: Vault | null, port: number) {
+  let currentVault = vault;
+  const composeProject = getComposeProject();
   const app = new Hono();
 
   // OAuth callback — captures authorization codes from external providers
@@ -83,28 +97,44 @@ export function startWebServer(vault: Vault, port: number) {
 
   // Setup page (first run)
   app.get("/setup", (c) => {
-    return c.html(renderSetup());
+    return c.html(renderSetup(!currentVault));
   });
 
   app.post("/setup", async (c) => {
     const body = await c.req.parseBody();
+
+    // Initialize vault from password if needed
+    if (!currentVault) {
+      const password = String(body.password || "").trim();
+      const confirmPassword = String(body.confirm_password || "").trim();
+      if (!password) return c.html(renderSetup(true, "Password is required"), 400);
+      if (password.length < 8) return c.html(renderSetup(true, "Password must be at least 8 characters"), 400);
+      if (password !== confirmPassword) return c.html(renderSetup(true, "Passwords do not match"), 400);
+
+      try {
+        const keyfile = initializeVault(config.vaultDir, password);
+        currentVault = new Vault(config.vaultDir, keyfile);
+      } catch (err) {
+        return c.html(renderSetup(true, `Failed to create vault: ${err instanceof Error ? err.message : err}`), 500);
+      }
+    }
+
     const botToken = String(body.bot_token || "").trim();
-    if (!botToken) return c.html(renderSetup("Bot token is required"), 400);
+    if (!botToken) return c.html(renderSetup(false, "Bot token is required"), 400);
 
     // Validate bot token
     try {
       const res = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
       const data = await res.json() as { ok: boolean; description?: string };
       if (!data.ok) {
-        return c.html(renderSetup(`Invalid bot token: ${data.description || "check your token"}`), 400);
+        return c.html(renderSetup(false, `Invalid bot token: ${data.description || "check your token"}`), 400);
       }
     } catch {
-      return c.html(renderSetup("Could not validate bot token. Check your internet connection."), 400);
+      return c.html(renderSetup(false, "Could not validate bot token. Check your internet connection."), 400);
     }
 
-    // Parse users from dynamic fields — check both naming conventions
+    // Parse users from dynamic fields
     const users: Record<string, string> = {};
-    const allKeys = Object.keys(body);
     for (let i = 0; i < 20; i++) {
       const id = String(body[`user_id_${i}`] || "").trim();
       const name = String(body[`user_name_${i}`] || "").trim();
@@ -113,27 +143,12 @@ export function startWebServer(vault: Vault, port: number) {
       }
     }
 
-    // Also try legacy format (id:Name per line in a textarea)
-    const usersRaw = String(body.users || "").trim();
-    if (usersRaw) {
-      for (const line of usersRaw.split("\n")) {
-        const parts = line.trim().split(":");
-        if (parts.length >= 2) {
-          const id = parts[0].trim();
-          const name = parts.slice(1).join(":").trim();
-          if (id && name && !isNaN(Number(id))) {
-            users[id] = name;
-          }
-        }
-      }
-    }
-
     if (Object.keys(users).length === 0) {
-      return c.html(renderSetup(`Add at least one user (received fields: ${allKeys.filter(k => k.startsWith("user")).join(", ") || "none"})`), 400);
+      return c.html(renderSetup(false, "Add at least one user"), 400);
     }
 
-    vault.set("telegram/bot_token", botToken as any);
-    vault.set("steve/users", users as any);
+    currentVault.set("telegram/bot_token", botToken as any);
+    currentVault.set("steve/users", users as any);
 
     return c.html(renderSetupComplete());
   });
@@ -149,9 +164,9 @@ export function startWebServer(vault: Vault, port: number) {
     }
 
     // Add to vault
-    const existing = (vault.get("steve/users") as Record<string, string>) || {};
+    const existing = (currentVault!.get("steve/users") as Record<string, string>) || {};
     existing[telegramId] = name;
-    vault.set("steve/users", existing as any);
+    currentVault!.set("steve/users", existing as any);
 
     // Write updated users.json — launch.ts watches this and starts new containers
     const allUsers = [...new Set(Object.values(existing).map((n) => n.toLowerCase()))];
@@ -168,12 +183,12 @@ export function startWebServer(vault: Vault, port: number) {
 
   // Home — redirect to setup if not configured, otherwise dashboard
   app.get("/", async (c) => {
-    if (!vault.has("telegram/bot_token") || !vault.has("steve/users")) {
+    if (!currentVault || !currentVault.has("telegram/bot_token") || !currentVault.has("steve/users")) {
       return c.redirect("/setup");
     }
     const health = await getHealth();
-    const keys = vault.list();
-    return c.html(renderHome(health, keys, getFieldNames(vault)));
+    const keys = currentVault!.list();
+    return c.html(renderHome(health, keys, getFieldNames(currentVault!)));
   });
 
   // Redirect /secrets to add form (this is the URL the AI tells users to visit)
@@ -181,8 +196,8 @@ export function startWebServer(vault: Vault, port: number) {
 
   // Secrets list
   app.get("/secrets/list", (c) => {
-    const keys = vault.list();
-    return c.html(renderDashboard(keys, getFieldNames(vault)));
+    const keys = currentVault!.list();
+    return c.html(renderDashboard(keys, getFieldNames(currentVault!)));
   });
 
   // New secret form
@@ -202,14 +217,14 @@ export function startWebServer(vault: Vault, port: number) {
       return c.html(renderNewForm("At least one field is required"), 400);
     }
 
-    vault.set(key, fields);
+    currentVault!.set(key, fields);
     return c.redirect("/");
   });
 
   // Edit secret form
   app.get("/secrets/:key/edit", (c) => {
     const key = decodeURIComponent(c.req.param("key"));
-    const current = vault.get(key);
+    const current = currentVault!.get(key);
     if (!current) return c.redirect("/");
     return c.html(renderEditForm(key, valueToFields(current)));
   });
@@ -221,18 +236,18 @@ export function startWebServer(vault: Vault, port: number) {
 
     const fields = parseFields(body);
     if (Object.keys(fields).length === 0) {
-      const current = vault.get(key);
+      const current = currentVault!.get(key);
       return c.html(renderEditForm(key, valueToFields(current), "At least one field is required"), 400);
     }
 
-    vault.set(key, fields);
+    currentVault!.set(key, fields);
     return c.redirect("/");
   });
 
   // Delete secret
   app.post("/secrets/:key/delete", (c) => {
     const key = decodeURIComponent(c.req.param("key"));
-    vault.delete(key);
+    currentVault!.delete(key);
     return c.redirect("/");
   });
 
@@ -260,7 +275,7 @@ export function startWebServer(vault: Vault, port: number) {
         const composeContent = [
           "services:",
           `  opencode-${name}:`,
-          "    image: steve-opencode",
+          `    image: ${process.env.STEVE_OPENCODE_IMAGE || "ghcr.io/robertbrunhage/steve-opencode:latest"}`,
           `    container_name: opencode-${name}`,
           "    restart: unless-stopped",
           '    command: ["serve", "--port", "3456", "--hostname", "0.0.0.0"]',
@@ -269,39 +284,39 @@ export function startWebServer(vault: Vault, port: number) {
           `      - "${port}:3456"`,
           "    volumes:",
           "      - type: volume",
-          "        source: steve_steve-data",
+          `        source: ${composeProject}_steve-data`,
           "        target: /data",
           "        volume:",
           `          subpath: users/${name}`,
           "      - type: volume",
-          "        source: steve_steve-data",
+          `        source: ${composeProject}_steve-data`,
           "        target: /data/skills",
           "        volume:",
           "          subpath: skills",
           "      - type: volume",
-          "        source: steve_steve-data",
+          `        source: ${composeProject}_steve-data`,
           "        target: /data/shared",
           "        volume:",
           "          subpath: shared",
           "      - type: volume",
-          "        source: steve_steve-data",
+          `        source: ${composeProject}_steve-data`,
           "        target: /root/.local/share/opencode",
           "        volume:",
           `          subpath: users/${name}/.opencode-data`,
-          "    networks: [steve_steve-net]",
+          `    networks: [${composeProject}_steve-net]`,
           "",
           "volumes:",
-          "  steve_steve-data:",
+          `  ${composeProject}_steve-data:`,
           "    external: true",
           "",
           "networks:",
-          "  steve_steve-net:",
+          `  ${composeProject}_steve-net:`,
           "    external: true",
         ].join("\n");
 
         const composeFile = `/tmp/opencode-${name}.yml`;
         writeFileSync(composeFile, composeContent, "utf-8");
-        execSync(`docker compose -p steve -f ${composeFile} up -d`, { stdio: "ignore", timeout: 30000 });
+        execSync(`docker compose -p ${composeProject} -f ${composeFile} up -d`, { stdio: "ignore", timeout: 30000 });
       }
     } catch (err) {
       console.error("Failed to start agent:", err instanceof Error ? err.message : err);

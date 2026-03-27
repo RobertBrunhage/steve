@@ -346,9 +346,26 @@ export function renderUserDetail(name: string, ocStatus: string, ocUrl: string):
   `);
 }
 
-export function renderSetup(error?: string): string {
+export function renderSetup(needsPassword: boolean, error?: string): string {
   const errorHtml = error ? flash(error, "error") : "";
   const input = "w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-white font-mono placeholder-zinc-600 focus:border-border-focus focus:outline-none";
+
+  const passwordStep = needsPassword ? `
+      <div class="bg-surface-card border border-border rounded-lg p-5">
+        <h2 class="text-sm font-medium text-white mb-1">Step 1 — Create a password</h2>
+        <p class="text-xs text-zinc-500 mb-4">
+          This encrypts your vault. You'll need it if you restore from a backup.
+          Steve auto-unlocks on daily restarts — you won't be asked for this again.
+        </p>
+        <div class="space-y-3">
+          <input type="password" name="password" placeholder="Password (8+ characters)" required minlength="8"
+            class="${input}">
+          <input type="password" name="confirm_password" placeholder="Confirm password" required
+            class="${input}">
+        </div>
+      </div>` : "";
+
+  const stepOffset = needsPassword ? 1 : 0;
 
   return layout("Setup", `
     <div class="text-center mb-8">
@@ -357,9 +374,10 @@ export function renderSetup(error?: string): string {
     </div>
     ${errorHtml}
     <form method="POST" action="/setup" class="space-y-8">
+      ${passwordStep}
 
       <div class="bg-surface-card border border-border rounded-lg p-5">
-        <h2 class="text-sm font-medium text-white mb-1">Step 1 — Set up Telegram</h2>
+        <h2 class="text-sm font-medium text-white mb-1">Step ${stepOffset + 1} — Set up Telegram</h2>
         <ol class="text-xs text-zinc-500 mb-4 space-y-1 list-decimal list-inside">
           <li>Open Telegram and message <strong class="text-zinc-300">@BotFather</strong></li>
           <li>Send <code class="text-blue-400">/newbot</code> and follow the prompts</li>
@@ -370,7 +388,7 @@ export function renderSetup(error?: string): string {
       </div>
 
       <div class="bg-surface-card border border-border rounded-lg p-5">
-        <h2 class="text-sm font-medium text-white mb-1">Step 2 — Add yourself</h2>
+        <h2 class="text-sm font-medium text-white mb-1">Step ${stepOffset + 2} — Add yourself</h2>
         <p class="text-xs text-zinc-500 mb-4">
           Message <strong class="text-zinc-300">@userinfobot</strong> on Telegram to get your user ID.
           You can add more users later from the dashboard.

@@ -115,7 +115,7 @@ permissions:
 // --- Main export ---
 
 export interface SetupResult {
-  vault: Vault;
+  vault: Vault | null;
   botToken: string;
   users: Record<string, string>;
 }
@@ -132,13 +132,14 @@ export async function runSetup(): Promise<SetupResult> {
     }
     keyfile = kf;
   } else if (process.env.STEVE_VAULT_PASSWORD) {
-    // First run — create keyfile from password
+    // First run via launch.ts — create keyfile from password env var
     const password = process.env.STEVE_VAULT_PASSWORD;
     delete process.env.STEVE_VAULT_PASSWORD;
     keyfile = initializeVault(config.vaultDir, password);
   } else {
-    console.error("No vault keyfile and no password provided. Run pnpm launch.");
-    process.exit(1);
+    // No vault yet — web wizard will handle initialization
+    createDirectories();
+    return { vault: null, botToken: "", users: {} };
   }
 
   let vault: Vault;

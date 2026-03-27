@@ -12,6 +12,7 @@ import { startWebServer } from "./web/index.js";
 import { setTelegramConnected, setVault } from "./health.js";
 import { TelegramChannel } from "./channels/telegram.js";
 import { registerChannel } from "./channels/index.js";
+import { hasKeyfile } from "./vault/index.js";
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -90,7 +91,7 @@ async function startBot(botToken: string, brain: Brain) {
 }
 
 async function main() {
-  const { vault, botToken, users } = await runSetup();
+  let { vault, botToken, users } = await runSetup();
 
   p.intro("Steve");
 
@@ -101,11 +102,26 @@ async function main() {
   startWebServer(vault, config.webPort);
   p.log.success(`Web UI at ${secretManagerUrl}`);
 
-  if (!botToken || Object.keys(users).length === 0) {
-    // Not configured — wait for web UI setup
+  // No vault yet — wait for web wizard to create one
+  if (!vault) {
     p.log.warn(`Open ${secretManagerUrl}/setup to finish setup`);
 
-    // Poll until configured
+    while (!hasKeyfile(config.vaultDir)) {
+      await sleep(2000);
+    }
+
+    // Vault was created by the web wizard — re-run setup
+    ({ vault, botToken, users } = await runSetup());
+    if (!vault) {
+      p.log.error("Vault initialization failed");
+      process.exit(1);
+    }
+  }
+
+  if (!botToken || Object.keys(users).length === 0) {
+    // Vault exists but not configured — wait for web UI setup
+    p.log.warn(`Open ${secretManagerUrl}/setup to finish setup`);
+
     while (!vault.has("telegram/bot_token") || !vault.has("steve/users")) {
       await sleep(2000);
     }

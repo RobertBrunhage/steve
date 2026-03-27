@@ -26,36 +26,6 @@ function exec(cmd: string, quiet = false) {
   execSync(cmd, { stdio: quiet ? "ignore" : "inherit", cwd: projectRoot });
 }
 
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-/** Check if vault keyfile exists in the Docker volume */
-function hasKeyfile(): boolean {
-  try {
-    execSync(
-      "docker compose run --rm --no-deps -T steve test -f /vault/keyfile",
-      { cwd: projectRoot, stdio: "ignore", timeout: 15000 },
-    );
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Check if an old password-based vault exists (secrets.enc but no keyfile) */
-function hasOldVault(): boolean {
-  try {
-    execSync(
-      "docker compose run --rm --no-deps -T steve test -f /vault/secrets.enc",
-      { cwd: projectRoot, stdio: "ignore", timeout: 15000 },
-    );
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 
 function generateCompose(userNames: string[]) {
   const basePath = join(projectRoot, "docker-compose.base.yml");
@@ -101,35 +71,21 @@ function generateCompose(userNames: string[]) {
     `${userServices}\n\nvolumes:`,
   );
 
-  writeFileSync(join(projectRoot, "docker-compose.yml"), composed, "utf-8");
+  writeFileSync(join(projectRoot, "docker-compose.dev.yml"), composed, "utf-8");
 }
 
 async function main() {
   p.intro("Steve");
 
   process.env.STEVE_HOST_IP = getHostIp();
-
-  // Check if vault already has a keyfile (subsequent run = no password needed)
-  const keyfileExists = hasKeyfile();
-
-  if (!keyfileExists) {
-    const oldVaultExists = hasOldVault();
-    const pw = await p.password({
-      message: oldVaultExists ? "Password (migrating to keyfile mode)" : "Create a password to protect your data",
-    });
-    if (p.isCancel(pw)) {
-      p.cancel("Cancelled.");
-      process.exit(0);
-    }
-    process.env.STEVE_VAULT_PASSWORD = pw;
-  }
+  process.env.STEVE_OPENCODE_IMAGE = "steve-opencode";
 
   // Build
   const s = p.spinner();
   s.start("Building");
   generateCompose([]);
   try {
-    exec("docker compose build steve --quiet", true);
+    exec("docker compose -f docker-compose.dev.yml build steve --quiet", true);
     // Build custom OpenCode image for user agents
     exec("docker build -t steve-opencode -f opencode.Dockerfile . -q", true);
   } catch {
@@ -141,7 +97,7 @@ async function main() {
   // Start Steve only — user agents started from dashboard
   p.log.success("Starting Steve...");
 
-  const steve = spawn("docker", ["compose", "up", "--no-log-prefix", "steve"], {
+  const steve = spawn("docker", ["compose", "-f", "docker-compose.dev.yml", "up", "--no-log-prefix", "steve"], {
     stdio: "inherit",
     cwd: projectRoot,
     env: process.env,
@@ -158,7 +114,7 @@ async function main() {
       }
     } catch {}
     try {
-      execSync("docker compose down", { cwd: projectRoot, stdio: "ignore" });
+      execSync("docker compose -f docker-compose.dev.yml down", { cwd: projectRoot, stdio: "ignore" });
     } catch {}
     process.exit(0);
   });

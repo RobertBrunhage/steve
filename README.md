@@ -17,18 +17,23 @@ You (Telegram) → Steve → OpenCode (per-user container) → tools, memory, sk
 
 ## Quick Start
 
-**Prerequisites:** Docker, Node.js, pnpm
+**Prerequisites:** Docker
 
 ```bash
-git clone https://github.com/your-username/steve.git
+curl -O https://raw.githubusercontent.com/robertbrunhage/steve/main/docker-compose.yml
+docker compose up -d
+```
+
+Open `http://localhost:3000` — the setup wizard walks you through creating a password, adding your Telegram bot token, and adding yourself. Start your agent, connect your AI provider in OpenCode, and message your bot.
+
+### From Source (for development)
+
+```bash
+git clone https://github.com/robertbrunhage/steve.git
 cd steve
 pnpm install
 pnpm launch
 ```
-
-First run: create a password, open the web UI at `:3000`, add your Telegram bot token and yourself, start your agent, connect your AI provider in OpenCode, and message your bot.
-
-After that: `pnpm launch` — no password needed.
 
 ## Architecture
 
@@ -97,7 +102,14 @@ Vault is AES-256-GCM encrypted. A keyfile auto-decrypts on startup — password 
 ## Commands
 
 ```bash
-pnpm launch              # Start everything
+docker compose up -d     # Start Steve
+docker compose down      # Stop Steve
+docker compose pull      # Update to latest
+```
+
+For development:
+```bash
+pnpm launch              # Build and start locally
 pnpm backup              # Encrypted backup
 pnpm restore <file>      # Restore from backup
 pnpm doctor              # Health check

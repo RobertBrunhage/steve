@@ -1,10 +1,8 @@
 services:
   steve:
-    build: .
+    image: ghcr.io/robertbrunhage/steve:latest
     container_name: steve
     restart: unless-stopped
-    stdin_open: true
-    tty: true
     ports:
       - "3000:3000"
     volumes:
@@ -13,7 +11,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - STEVE_HOST_IP=${STEVE_HOST_IP:-localhost}
-      - STEVE_OPENCODE_IMAGE=steve-opencode
     cap_drop:
       - NET_RAW
       - NET_ADMIN
