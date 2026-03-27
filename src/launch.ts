@@ -11,6 +11,15 @@ function exec(cmd: string, quiet = false) {
   execSync(cmd, { stdio: quiet ? "ignore" : "inherit", cwd: projectRoot });
 }
 
+function detectHostname() {
+  try {
+    const host = execSync("hostname", { encoding: "utf-8" }).trim();
+    return host.replace(/\.local$/, "").replace(/\..*$/, "") || "localhost";
+  } catch {
+    return "localhost";
+  }
+}
+
 
 function generateCompose(userNames: string[]) {
   const basePath = join(projectRoot, "docker-compose.base.yml");
@@ -63,10 +72,8 @@ async function main() {
   p.intro("Steve");
 
   process.env.STEVE_OPENCODE_IMAGE = "steve-opencode";
-  if (!process.env.HOSTNAME) {
-    try {
-      process.env.HOSTNAME = execSync("hostname", { encoding: "utf-8" }).trim();
-    } catch {}
+  if (!process.env.STEVE_HOSTNAME) {
+    process.env.STEVE_HOSTNAME = detectHostname();
   }
 
   // Build

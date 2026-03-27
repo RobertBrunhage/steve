@@ -7,6 +7,7 @@ import type { Vault } from "../vault/index.js";
 import type { Channel } from "../channels/index.js";
 import { config, getBaseUrl } from "../config.js";
 import { loadUserJobs, saveUserJobs, type Job } from "../scheduler.js";
+import { toUserSlug } from "../users.js";
 
 interface McpConfig {
   channel: Channel;
@@ -149,7 +150,7 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
       id: z.string().optional().describe("Job id to remove (required for 'remove' action)"),
     },
   }, async ({ action, userName, job, id }) => {
-    const user = userName.toLowerCase();
+    const user = toUserSlug(userName);
 
     if (action === "list") {
       const jobs = loadUserJobs(user);
@@ -193,7 +194,7 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
       args: z.array(z.string()).optional().describe("Arguments to pass to the script"),
     },
   }, async ({ script, args }) => {
-    const userName = args?.[0]?.toLowerCase() || "";
+    const userName = args?.[0] ? toUserSlug(args[0]) : "";
 
     // Normalize script path: OpenCode sends paths relative to its container
     // (e.g. "skills/withings/scripts/setup.sh" or "/data/skills/withings/scripts/setup.sh")
@@ -263,4 +264,3 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
   return server;
   };
 }
-

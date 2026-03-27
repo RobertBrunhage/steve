@@ -1,28 +1,25 @@
 import * as p from "@clack/prompts";
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/client";
 import { getRuntime } from "../config.js";
+import { findUserId, toUserSlug } from "../users.js";
 
-const sessions: Map<string, string> = new Map();
-const queues: Map<string, Promise<void>> = new Map();
-const clients: Map<string, OpencodeClient> = new Map();
+type PromptPart =
+  | { type: "text"; text: string }
+  | { type: "file"; mime: string; url: string };
 
-function getClientForUser(userName: string): OpencodeClient {
-  const name = userName.toLowerCase();
-  if (!clients.has(name)) {
-    clients.set(name, createOpencodeClient({
-      baseUrl: `http://opencode-${name}:3456`,
-      directory: "/data",
-    }));
-  }
-  return clients.get(name)!;
-}
+const MIME_BY_EXTENSION: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  webp: "image/webp",
+  pdf: "application/pdf",
+};
 
 // Direct Telegram API call as fallback when opencode fails entirely
 async function sendFallback(userName: string, message: string) {
   const rt = getRuntime();
-  const chatId = Object.entries(rt.users).find(
-    ([, name]) => name.toLowerCase() === userName.toLowerCase(),
-  )?.[0];
+  const chatId = findUserId(rt.users, userName);
 
   if (!chatId || !rt.botToken) return;
 
@@ -41,15 +38,119 @@ async function sendFallback(userName: string, message: string) {
 }
 
 export class Brain {
+  private readonly sessions = new Map<string, string>();
+  private readonly queues = new Map<string, Promise<void>>();
+  private readonly clients = new Map<string, OpencodeClient>();
+
   async think(
     userMessage: string,
     userName: string,
     files?: string[],
   ): Promise<void> {
-    const prev = queues.get(userName) ?? Promise.resolve();
+    const queueKey = toUserSlug(userName);
+    const prev = this.queues.get(queueKey) ?? Promise.resolve();
     const current = prev.then(() => this.process(userMessage, userName, files));
-    queues.set(userName, current);
+    this.queues.set(queueKey, current);
     await current;
+  }
+
+  private getClient(userName: string): OpencodeClient {
+    const name = toUserSlug(userName);
+    if (!this.clients.has(name)) {
+      this.clients.set(name, createOpencodeClient({
+        baseUrl: `http://opencode-${name}:3456`,
+        directory: "/data",
+      }));
+    }
+    return this.clients.get(name)!;
+  }
+
+  private async findExistingSessionId(oc: OpencodeClient, userName: string): Promise<string | null> {
+    try {
+      const list = await oc.session.list({});
+      const existing = (list.data as any[])?.find(
+        (s: any) => s.title === `Steve - ${userName}` && !s.time?.archived,
+      );
+      return existing?.id ? String(existing.id) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async createSessionId(oc: OpencodeClient, userName: string): Promise<string> {
+    const res = await oc.session.create({ body: { title: `Steve - ${userName}` } });
+    if (!res.data?.id) {
+      throw new Error("Failed to create session");
+    }
+    return res.data.id;
+  }
+
+  private async getOrCreateSessionId(oc: OpencodeClient, userName: string): Promise<string> {
+    const key = toUserSlug(userName);
+    const cached = this.sessions.get(key);
+    if (cached) return cached;
+
+    const existing = await this.findExistingSessionId(oc, userName);
+    if (existing) {
+      this.sessions.set(key, existing);
+      p.log.info(`Resumed session for ${userName}`);
+      return existing;
+    }
+
+    const created = await this.createSessionId(oc, userName);
+    this.sessions.set(key, created);
+    return created;
+  }
+
+  private buildPromptParts(userMessage: string, files?: string[]): PromptPart[] {
+    const parts: PromptPart[] = [{ type: "text", text: userMessage }];
+
+    for (const file of files ?? []) {
+      const ext = file.split(".").pop()?.toLowerCase() || "jpg";
+      parts.push({
+        type: "file",
+        mime: MIME_BY_EXTENSION[ext] || "application/octet-stream",
+        url: `file://${file}`,
+      });
+    }
+
+    return parts;
+  }
+
+  private async promptSession(oc: OpencodeClient, sessionId: string, parts: PromptPart[]) {
+    return oc.session.prompt({
+      path: { id: sessionId },
+      body: { parts },
+    });
+  }
+
+  private async promptWithSessionRetry(oc: OpencodeClient, userName: string, parts: PromptPart[]) {
+    const key = toUserSlug(userName);
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const sessionId = attempt === 0
+        ? await this.getOrCreateSessionId(oc, userName)
+        : await this.createSessionId(oc, userName);
+
+      if (attempt > 0) {
+        this.sessions.set(key, sessionId);
+      }
+
+      const res = await this.promptSession(oc, sessionId, parts);
+      if (!res.error) {
+        return res;
+      }
+
+      if (attempt === 0 && (res.response?.status === 404 || res.response?.status === 400)) {
+        p.log.warn(`Session expired for ${userName}, creating new one...`);
+        this.sessions.delete(key);
+        continue;
+      }
+
+      throw new Error(`OpenCode error: ${JSON.stringify(res.error)}`);
+    }
+
+    throw new Error("Failed to prompt OpenCode");
   }
 
   private async process(
@@ -60,71 +161,9 @@ export class Brain {
     try {
       p.log.step(`${userName} → thinking...`);
 
-      const oc = getClientForUser(userName);
-      let sessionId = sessions.get(userName);
-
-      // Reuse existing session or find the last one from OpenCode
-      if (!sessionId) {
-        try {
-          const list = await oc.session.list({});
-          const existing = (list.data as any[])?.find(
-            (s: any) => s.title === `Steve - ${userName}` && !s.time?.archived,
-          );
-          if (existing?.id) {
-            sessionId = existing.id as string;
-            sessions.set(userName, sessionId);
-            p.log.info(`Resumed session for ${userName}`);
-          }
-        } catch {}
-      }
-
-      // Create new session only if no existing one found
-      if (!sessionId) {
-        const res = await oc.session.create({
-          body: { title: `Steve - ${userName}` },
-        });
-        if (res.data) {
-          sessionId = res.data.id;
-          sessions.set(userName, sessionId);
-        } else {
-          throw new Error("Failed to create session");
-        }
-      }
-
-      // Build message parts
-      const parts: Array<{ type: "text"; text: string } | { type: "file"; mime: string; url: string }> = [
-        { type: "text", text: userMessage },
-      ];
-
-      if (files?.length) {
-        for (const file of files) {
-          const ext = file.split(".").pop()?.toLowerCase() || "jpg";
-          const mimeMap: Record<string, string> = {
-            jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
-            gif: "image/gif", webp: "image/webp", pdf: "application/pdf",
-          };
-          parts.push({
-            type: "file",
-            mime: mimeMap[ext] || "application/octet-stream",
-            url: `file://${file}`,
-          });
-        }
-      }
-
-      // Send prompt — let OpenCode use its configured model
-      const res = await oc.session.prompt({
-        path: { id: sessionId },
-        body: { parts },
-      });
-
-      if (res.error) {
-        if (res.response?.status === 404 || res.response?.status === 400) {
-          p.log.warn(`Session expired for ${userName}, creating new one...`);
-          sessions.delete(userName);
-          return this.process(userMessage, userName, files);
-        }
-        throw new Error(`OpenCode error: ${JSON.stringify(res.error)}`);
-      }
+      const oc = this.getClient(userName);
+      const parts = this.buildPromptParts(userMessage, files);
+      await this.promptWithSessionRetry(oc, userName, parts);
 
       p.log.success(`${userName} → replied`);
     } catch (error) {
@@ -142,20 +181,9 @@ export class Brain {
     userName: string,
   ): Promise<void> {
     try {
-      const oc = getClientForUser(userName);
-
-      const session = await oc.session.create({
-        body: { title: `Steve - ${userName} (isolated)` },
-      });
-
-      if (!session.data) throw new Error("Failed to create isolated session");
-
-      const res = await oc.session.prompt({
-        path: { id: session.data.id },
-        body: {
-          parts: [{ type: "text", text: userMessage }],
-        },
-      });
+      const oc = this.getClient(userName);
+      const sessionId = await this.createSessionId(oc, `${userName} (isolated)`);
+      const res = await this.promptSession(oc, sessionId, this.buildPromptParts(userMessage));
 
       if (res.error) {
         throw new Error(`OpenCode error: ${JSON.stringify(res.error)}`);
@@ -166,7 +194,8 @@ export class Brain {
   }
 
   stopAll() {
-    sessions.clear();
-    clients.clear();
+    this.sessions.clear();
+    this.clients.clear();
+    this.queues.clear();
   }
 }

@@ -13,9 +13,61 @@ import { setTelegramConnected, setVault } from "./health.js";
 import { TelegramChannel } from "./channels/telegram.js";
 import { registerChannel } from "./channels/index.js";
 import { hasKeyfile } from "./vault/index.js";
+import { writeUserManifest } from "./users.js";
+import type { Vault } from "./vault/index.js";
+
+type UsersMap = Record<string, string>;
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+async function waitFor(condition: () => boolean, intervalMs = 2000) {
+  while (!condition()) {
+    await sleep(intervalMs);
+  }
+}
+
+function applyRuntimeConfig(botToken: string, users: UsersMap) {
+  const allowedUserIds = Object.keys(users).map(Number).filter((id) => id > 0);
+  setRuntimeConfig({ botToken, users, allowedUserIds });
+}
+
+async function waitForVault(vault: Vault | null): Promise<Vault> {
+  if (vault) return vault;
+
+  p.log.warn("Open the one-time setup link to finish setup");
+  await waitFor(() => hasKeyfile(config.vaultDir));
+
+  const setup = await runSetup();
+  if (!setup.vault) {
+    p.log.error("Vault initialization failed");
+    process.exit(1);
+  }
+
+  return setup.vault;
+}
+
+async function waitForConfiguration(vault: Vault, botToken: string, users: UsersMap): Promise<{ botToken: string; users: UsersMap }> {
+  if (botToken && Object.keys(users).length > 0) {
+    return { botToken, users };
+  }
+
+  p.log.warn("Open the one-time setup link to finish setup");
+  await waitFor(() => vault.has("telegram/bot_token") && vault.has("steve/users"));
+
+  const nextBotToken = vault.getString("telegram/bot_token");
+  const nextUsers = vault.get("steve/users") as UsersMap | null;
+  if (!nextBotToken || !nextUsers || Object.keys(nextUsers).length === 0) {
+    p.log.error("Configuration completed but runtime values were missing");
+    process.exit(1);
+  }
+
+  await runSetup();
+  p.log.success("Configuration complete!");
+  writeUserManifest(config.dataDir, nextUsers);
+
+  return { botToken: nextBotToken, users: nextUsers };
 }
 
 async function startBot(botToken: string, brain: Brain) {
@@ -96,66 +148,20 @@ async function main() {
   p.intro("Steve");
 
   // Always start web UI (dashboard or setup wizard)
-  startWebServer(vault, config.webPort);
+  const web = startWebServer(vault, config.webPort);
   p.log.success(`Web UI at ${getBaseUrl()}`);
-
-  // No vault yet — wait for web wizard to create one
-  if (!vault) {
-    p.log.warn(`Open ${getBaseUrl()}/setup to finish setup`);
-
-    while (!hasKeyfile(config.vaultDir)) {
-      await sleep(2000);
-    }
-
-    // Vault was created by the web wizard — re-run setup
-    ({ vault, botToken, users } = await runSetup());
-    if (!vault) {
-      p.log.error("Vault initialization failed");
-      process.exit(1);
-    }
+  if (web.setupUrl) {
+    p.log.warn(`One-time setup link: ${web.setupUrl}`);
   }
 
-  if (!botToken || Object.keys(users).length === 0) {
-    // Vault exists but not configured — wait for web UI setup
-    p.log.warn(`Open ${getBaseUrl()}/setup to finish setup`);
-
-    while (!vault.has("telegram/bot_token") || !vault.has("steve/users")) {
-      await sleep(2000);
-    }
-
-    // Re-read config and continue
-    const newToken = vault.getString("telegram/bot_token")!;
-    const newUsers = vault.get("steve/users") as Record<string, string>;
-
-    const allowedUserIds = Object.keys(newUsers).map(Number).filter((id) => id > 0);
-    setRuntimeConfig({ botToken: newToken, users: newUsers, allowedUserIds });
-
-    // Run full setup now that we have config
-    const { runSetup: rerun } = await import("./setup.js");
-    await rerun();
-
-    p.log.success("Configuration complete!");
-
-    // Write users.json so launch.ts can start containers
-    const userList = [...new Set(Object.values(newUsers).map((n) => n.toLowerCase()))];
-    const { writeFileSync } = await import("node:fs");
-    const { join } = await import("node:path");
-    writeFileSync(
-      join(config.dataDir, "users.json"),
-      JSON.stringify({ users: userList }, null, 2),
-      "utf-8",
-    );
-
-    return startServices(vault, newToken, newUsers);
-  }
-
-  const allowedUserIds = Object.keys(users).map(Number).filter((id) => id > 0);
-  setRuntimeConfig({ botToken, users, allowedUserIds });
+  vault = await waitForVault(vault);
+  ({ botToken, users } = await waitForConfiguration(vault, botToken, users));
+  applyRuntimeConfig(botToken, users);
 
   return startServices(vault, botToken, users);
 }
 
-async function startServices(vault: any, botToken: string, users: Record<string, string>) {
+async function startServices(vault: Vault, botToken: string, users: UsersMap) {
   // MCP server
   const channel = new TelegramChannel(botToken, users);
   registerChannel(channel);

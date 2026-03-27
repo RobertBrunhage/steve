@@ -20,11 +20,18 @@ You (Telegram) → Steve → OpenCode (per-user container) → tools, memory, sk
 **Prerequisites:** Docker
 
 ```bash
-curl -O https://raw.githubusercontent.com/robertbrunhage/steve/main/docker-compose.yml
-docker compose up -d
+curl -fsSL https://raw.githubusercontent.com/robertbrunhage/steve/main/install.sh | bash
 ```
 
-Open `http://<your-hostname>.local:3000` — Steve auto-detects your machine's hostname for LAN access. The setup wizard walks you through creating a password, adding your Telegram bot token, and adding yourself. Start your agent, connect your AI provider in OpenCode, and message your bot.
+That installs a local `steve` helper command, downloads the compose file into `~/.steve`, and starts the app.
+
+```bash
+steve logs    # Follow logs
+steve down    # Stop Steve
+steve update  # Refresh compose and pull latest image
+```
+
+Open `http://<your-machine-name>.local:3000` — Steve auto-detects your machine name for LAN access and stores it as `STEVE_HOSTNAME`. On first boot, Steve prints a one-time setup link in the logs. That setup flow creates your household admin password, adds your Telegram bot token, and adds your first user. After setup, the dashboard requires that admin password.
 
 ### From Source (for development)
 

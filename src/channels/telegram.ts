@@ -1,4 +1,5 @@
 import type { Channel, SendResult } from "./index.js";
+import { findUserId } from "../users.js";
 
 export class TelegramChannel implements Channel {
   readonly name = "telegram";
@@ -9,10 +10,7 @@ export class TelegramChannel implements Channel {
   ) {}
 
   private getChatId(userName: string): string | null {
-    for (const [id, name] of Object.entries(this.users)) {
-      if (name.toLowerCase() === userName.toLowerCase()) return id;
-    }
-    return null;
+    return findUserId(this.users, userName);
   }
 
   async sendMessage(userName: string, text: string, options?: { buttons?: string[][] }): Promise<SendResult> {

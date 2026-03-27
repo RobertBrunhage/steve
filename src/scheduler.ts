@@ -5,6 +5,7 @@ import * as p from "@clack/prompts";
 import type { Brain } from "./brain/index.js";
 import { config } from "./config.js";
 import { setReminderCount } from "./health.js";
+import { toUserSlug } from "./users.js";
 
 export interface Job {
   id: string;
@@ -26,7 +27,7 @@ const MAX_RETRIES = 3;
 
 /** Get the jobs.json path for a specific user */
 export function getUserJobsPath(userName: string): string {
-  return join(config.usersDir, userName.toLowerCase(), "jobs.json");
+  return join(config.usersDir, toUserSlug(userName), "jobs.json");
 }
 
 /** Load jobs for a single user */

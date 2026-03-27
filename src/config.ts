@@ -1,6 +1,7 @@
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
+import { toUserSlug } from "./users.js";
 
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -30,7 +31,7 @@ export interface SteveConfig {
 
 /** Get the workspace directory for a specific user */
 export function getUserDir(userName: string): string {
-  return join(config.usersDir, userName.toLowerCase());
+  return join(config.usersDir, toUserSlug(userName));
 }
 
 /** Runtime config set after vault is unlocked */
@@ -69,7 +70,8 @@ export const config: SteveConfig = Object.freeze({
 /** Get the base URL for Steve's web UI — single source of truth */
 export function getBaseUrl(): string {
   const host = process.env.STEVE_HOSTNAME || "localhost";
-  return `http://${host}:${config.webPort}`;
+  const hostname = host === "localhost" || host.includes(".") ? host : `${host}.local`;
+  return `http://${hostname}:${config.webPort}`;
 }
 
 export { steveDir };

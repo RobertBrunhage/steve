@@ -8,6 +8,7 @@ import {
 import { join } from "node:path";
 import { steveDir, config } from "./config.js";
 import { Vault, readKeyfile, initializeVault, hasKeyfile } from "./vault/index.js";
+import { toUserSlug, writeUserManifest } from "./users.js";
 
 // --- Directory and config setup ---
 
@@ -29,7 +30,7 @@ function syncSkills() {
 }
 
 function setupUserWorkspace(userName: string) {
-  const userDir = join(config.usersDir, userName.toLowerCase());
+  const userDir = join(config.usersDir, toUserSlug(userName));
   for (const sub of ["memory", "memory/daily", "memory/nutrition", "memory/training", "memory/body-measurements"]) {
     mkdirSync(join(userDir, sub), { recursive: true });
   }
@@ -95,7 +96,7 @@ permissions:
 `;
 
   for (const userName of Object.values(users)) {
-    const userDir = join(config.usersDir, userName.toLowerCase());
+    const userDir = join(config.usersDir, toUserSlug(userName));
     mkdirSync(userDir, { recursive: true });
 
     writeFileSync(join(userDir, "opencode.json"), opencodeJson, "utf-8");
@@ -167,12 +168,7 @@ export async function runSetup(): Promise<SetupResult> {
   generateRuntimeConfig(users);
 
   // Write user manifest for launch script
-  const userList = [...new Set(Object.values(users).map((n) => n.toLowerCase()))];
-  writeFileSync(
-    join(steveDir, "users.json"),
-    JSON.stringify({ users: userList }, null, 2),
-    "utf-8",
-  );
+  writeUserManifest(steveDir, users);
 
   return { vault, botToken, users };
 }

@@ -1,5 +1,6 @@
 import { getRuntime } from "./config.js";
 import type { Vault } from "./vault/index.js";
+import { toUserSlug, uniqueUserSlugs } from "./users.js";
 
 export interface HealthStatus {
   healthy: boolean;
@@ -22,7 +23,7 @@ export function setTelegramConnected(connected: boolean) { telegramConnected = c
 export function setVault(v: Vault) { vault = v; }
 
 async function checkOpenCode(userName: string): Promise<{ status: "ok" | "error"; message?: string }> {
-  const url = `http://opencode-${userName.toLowerCase()}:3456`;
+  const url = `http://opencode-${toUserSlug(userName)}:3456`;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
     return res.ok ? { status: "ok" } : { status: "error", message: `HTTP ${res.status}` };
@@ -35,9 +36,9 @@ export async function getHealth(): Promise<HealthStatus> {
   const opencode: Record<string, { status: "ok" | "error"; message?: string }> = {};
   try {
     const rt = getRuntime();
-    const userNames = [...new Set(Object.values(rt.users))];
+    const userNames = uniqueUserSlugs(rt.users);
     await Promise.all(userNames.map(async (name) => {
-      opencode[name.toLowerCase()] = await checkOpenCode(name);
+      opencode[name] = await checkOpenCode(name);
     }));
   } catch {
     opencode["default"] = { status: "error", message: "runtime not initialized" };

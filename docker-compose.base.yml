@@ -12,7 +12,7 @@ services:
       - steve-vault:/vault
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      - STEVE_HOSTNAME=${HOSTNAME:-localhost}
+      - STEVE_HOSTNAME=${STEVE_HOSTNAME:-localhost}
       - STEVE_OPENCODE_IMAGE=steve-opencode
     cap_drop:
       - NET_RAW
