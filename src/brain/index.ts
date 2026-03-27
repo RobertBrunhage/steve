@@ -78,7 +78,7 @@ export class Brain {
 
       // Build message parts
       const parts: Array<{ type: "text"; text: string } | { type: "file"; mime: string; url: string }> = [
-        { type: "text", text: `[${userName}]: ${userMessage}` },
+        { type: "text", text: userMessage },
       ];
 
       if (files?.length) {
@@ -138,7 +138,7 @@ export class Brain {
       const res = await oc.session.prompt({
         path: { id: session.data.id },
         body: {
-          parts: [{ type: "text", text: `[${userName}]: ${userMessage}` }],
+          parts: [{ type: "text", text: userMessage }],
         },
       });
 

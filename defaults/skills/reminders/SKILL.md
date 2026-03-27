@@ -8,6 +8,11 @@ per_user: true
 
 Use the `manage_jobs` tool to create, list, and delete reminders.
 
+IMPORTANT:
+- Always `list` jobs BEFORE adding to see what already exists
+- Adding a job with the same `id` replaces the existing one (no duplicates)
+- Only create what the user asked for. Do NOT create extra reminders.
+
 ### Creating a Recurring Reminder
 
 ```
@@ -15,6 +20,7 @@ manage_jobs action: "add", userName: "{userName}", job: {
   id: "{userName}-workout-1pm",
   name: "1pm Workout Reminder",
   cron: "0 13 * * 1,2,4,5",
+  timezone: "Europe/Stockholm",
   prompt: "Check training schedule and tell me what workout is today."
 }
 ```
@@ -25,7 +31,7 @@ manage_jobs action: "add", userName: "{userName}", job: {
 manage_jobs action: "add", userName: "{userName}", job: {
   id: "{userName}-check-laundry",
   name: "Check laundry",
-  at: "2026-03-24T15:30:00",
+  at: "2026-03-24T15:30:00+01:00",
   prompt: "Remind me to check the laundry."
 }
 ```
@@ -36,23 +42,16 @@ One-off reminders are automatically deleted after firing.
 
 - **id**: Unique identifier (use `{userName}-{descriptive-slug}`)
 - **name**: Human-readable name
-- **cron**: Cron expression (minute hour day-of-month month day-of-week)
-- **at**: ISO datetime for one-off reminders
+- **cron**: Cron expression (minute hour day-of-month month day-of-week). Always include `timezone`.
+- **at**: ISO 8601 datetime with timezone offset (e.g., `2026-03-24T15:30:00+01:00`). Use `session_status` tool to get the current time and timezone. ALWAYS include the offset.
 - **prompt**: What to think about when the reminder fires
-- **timezone**: Optional IANA timezone (e.g., `Europe/Stockholm`)
+- **timezone**: IANA timezone for cron jobs (e.g., `Europe/Stockholm`). Required for cron. Not needed for `at` (use offset in the datetime instead).
 
 Use either `cron` OR `at`, not both.
 
-### Cron Examples
-
-- `0 7 * * *` — every day at 7:00 AM
-- `0 7 * * 1-5` — weekdays at 7:00 AM
-- `0 20 * * 0` — Sundays at 8:00 PM
-- `0 9 * * 1` — Mondays at 9:00 AM
-
 ### One-Off: Converting Relative Times
 
-Use the `session_status` tool to get the current time, then calculate the target time.
+Use the `session_status` tool to get the current time, then calculate the target time. Always include the timezone offset in the result.
 
 ### Managing Reminders
 

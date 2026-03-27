@@ -59,36 +59,32 @@ export function registerMessageHandler(
   bot: Bot,
   brain: Brain,
 ): void {
-  bot.on("message:text", async (ctx) => {
-    await handleBrainMessage(ctx, brain, ctx.message.text);
+  bot.on("message:text", (ctx) => {
+    handleBrainMessage(ctx, brain, ctx.message.text);
   });
 
   // Inline button callbacks
-  bot.on("callback_query:data", async (ctx) => {
+  bot.on("callback_query:data", (ctx) => {
     const userName = getUserName(ctx.from.id);
     const data = ctx.callbackQuery.data;
-    await ctx.answerCallbackQuery();
-    await handleBrainMessage(ctx, brain, data);
+    ctx.answerCallbackQuery();
+    handleBrainMessage(ctx, brain, data);
   });
 
-  bot.on("message:photo", async (ctx) => {
-    const stopTyping = keepTyping(ctx);
-
+  bot.on("message:photo", (ctx) => {
     const userName = getUserName(ctx.from?.id ?? 0);
     const caption = ctx.message.caption || "The user sent a photo.";
 
-    const photo = await downloadPhoto(ctx, userName);
-    if (!photo) {
-      stopTyping();
-      await ctx.reply("Sorry, I couldn't download that image.");
-      return;
-    }
-
-    try {
-      await brain.think(caption, userName, [photo.containerPath]);
-    } finally {
-      stopTyping();
-      try { await unlink(photo.hostPath); } catch {}
-    }
+    downloadPhoto(ctx, userName).then((photo) => {
+      if (!photo) {
+        ctx.reply("Sorry, I couldn't download that image.");
+        return;
+      }
+      const stopTyping = keepTyping(ctx);
+      brain.think(caption, userName, [photo.containerPath]).finally(() => {
+        stopTyping();
+        unlink(photo.hostPath).catch(() => {});
+      });
+    });
   });
 }

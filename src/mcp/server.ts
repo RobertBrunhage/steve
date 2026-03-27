@@ -158,7 +158,9 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
     }
 
     if (action === "add" && job) {
-      const jobs = loadUserJobs(user);
+      // Upsert: replace existing job with same ID, or append
+      let jobs = loadUserJobs(user);
+      jobs = jobs.filter((j) => j.id !== job.id);
       jobs.push(job);
       saveUserJobs(user, jobs);
       return { content: [{ type: "text", text: `Job "${job.name}" added` }] };
