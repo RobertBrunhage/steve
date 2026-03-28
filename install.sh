@@ -261,6 +261,18 @@ show_setup_url() {
     fi
 }
 
+maybe_show_setup_url() {
+    local token=""
+    for _ in $(seq 1 15); do
+        token=$(docker_compose exec -T steve sh -lc 'if [ -f /data/setup-token.json ]; then sed -n "s/.*\"token\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" /data/setup-token.json; fi' 2>/dev/null || true)
+        if [[ -n "$token" ]]; then
+            show_setup_url
+            return
+        fi
+        sleep 1
+    done
+}
+
 ensure_files
 
 cmd=\${1:-help}
@@ -268,6 +280,7 @@ case "\$cmd" in
     up)
         docker_compose up -d
         show_url
+        maybe_show_setup_url
         ;;
     down)
         docker_compose down
@@ -275,6 +288,7 @@ case "\$cmd" in
     restart)
         docker_compose restart
         show_url
+        maybe_show_setup_url
         ;;
     logs)
         docker_compose logs -f
@@ -296,6 +310,7 @@ case "\$cmd" in
         docker_compose pull
         docker_compose up -d
         show_url
+        maybe_show_setup_url
         ;;
     setup-url)
         show_setup_url
@@ -401,3 +416,4 @@ else
     printf 'Dashboard: http://%s.local:%s\n' "$(detect_hostname)" "$DEFAULT_WEB_PORT"
     printf 'Fallback:  http://localhost:%s\n' "$DEFAULT_WEB_PORT"
 fi
+maybe_show_setup_url

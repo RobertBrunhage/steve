@@ -73,6 +73,18 @@ show_setup_url() {
     fi
 }
 
+maybe_show_setup_url() {
+    local token=""
+    for _ in $(seq 1 15); do
+        token=$(docker_compose exec -T steve sh -lc 'if [ -f /data/setup-token.json ]; then sed -n "s/.*\"token\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" /data/setup-token.json; fi' 2>/dev/null || true)
+        if [[ -n "$token" ]]; then
+            show_setup_url
+            return
+        fi
+        sleep 1
+    done
+}
+
 image_exists() {
     docker image inspect "$1" >/dev/null 2>&1
 }
@@ -167,6 +179,7 @@ case "$cmd" in
         print_step "Starting Steve"
         docker_compose up -d steve
         show_url
+        maybe_show_setup_url
         ;;
     down)
         docker_compose down
@@ -174,6 +187,7 @@ case "$cmd" in
     restart)
         docker_compose restart
         show_url
+        maybe_show_setup_url
         ;;
     logs)
         docker_compose logs -f steve
