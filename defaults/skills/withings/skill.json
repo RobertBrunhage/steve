@@ -1,0 +1,44 @@
+{
+  "scripts": {
+    "setup.sh": {
+      "secrets": [
+        {
+          "key": "{user}/withings",
+          "fields": ["client_id", "client_secret"]
+        },
+        {
+          "key": "{user}/withings-tokens",
+          "fields": ["access_token", "refresh_token", "expires_at"]
+        }
+      ]
+    },
+    "complete-auth.sh": {
+      "secrets": [
+        {
+          "key": "{user}/withings",
+          "fields": ["client_id", "client_secret"]
+        }
+      ]
+    },
+    "fetch-measurements.sh": {
+      "secrets": [
+        {
+          "key": "{user}/withings-tokens",
+          "fields": ["access_token", "expires_at"]
+        }
+      ]
+    },
+    "refresh-token.sh": {
+      "secrets": [
+        {
+          "key": "{user}/withings",
+          "fields": ["client_id", "client_secret"]
+        },
+        {
+          "key": "{user}/withings-tokens",
+          "fields": ["refresh_token"]
+        }
+      ]
+    }
+  }
+}

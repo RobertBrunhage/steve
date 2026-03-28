@@ -8,7 +8,7 @@ requires:
 
 ## Setup & Sync
 
-IMPORTANT: Always use the MCP `run_script` tool to run scripts. NEVER run them directly with bash/shell. The `run_script` tool injects credentials automatically.
+IMPORTANT: Always use the MCP `run_script` tool to run scripts. NEVER run them directly with bash/shell. The `run_script` tool injects the exact credentials declared in `skill.json` automatically.
 
 Always start by calling the MCP tool `run_script` with script path and the user's name as the first argument:
 

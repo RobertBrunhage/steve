@@ -160,9 +160,28 @@ Commands:
   ps        Show container status
   pull      Pull latest image referenced by compose
   update    Refresh compose file and pull latest image
+  setup-url Print the one-time setup URL
   url       Show dashboard URL
   help      Show this help message
 USAGE
+}
+
+show_setup_url() {
+    local host token
+    host=localhost
+    if [[ -f "\$ENV_FILE" ]]; then
+        host=$(grep '^STEVE_HOSTNAME=' "\$ENV_FILE" | cut -d= -f2- || true)
+    fi
+    token=$(docker exec steve sh -lc 'if [ -f /data/setup-token.json ]; then sed -n "s/.*\"token\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" /data/setup-token.json; fi' 2>/dev/null || true)
+    if [[ -z "\$token" ]]; then
+        printf 'No pending setup token found. Steve may already be configured.\n' >&2
+        exit 1
+    fi
+    if [[ -z "\$host" || "\$host" == "localhost" ]]; then
+        printf 'Setup URL: http://localhost:3000/setup?token=%s\n' "\$token"
+    else
+        printf 'Setup URL: http://%s.local:3000/setup?token=%s\n' "\$host" "\$token"
+    fi
 }
 
 ensure_files
@@ -194,6 +213,9 @@ case "\$cmd" in
         docker_compose pull
         docker_compose up -d
         show_url
+        ;;
+    setup-url)
+        show_setup_url
         ;;
     url)
         show_url

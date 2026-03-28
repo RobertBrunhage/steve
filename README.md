@@ -29,6 +29,7 @@ That installs a local `steve` helper command, downloads the compose file into `~
 steve logs    # Follow logs
 steve down    # Stop Steve
 steve update  # Refresh compose and pull latest image
+steve setup-url  # Print the one-time setup URL
 ```
 
 Open `http://<your-machine-name>.local:3000` — Steve auto-detects your machine name for LAN access and stores it as `STEVE_HOSTNAME`. On first boot, Steve prints a one-time setup link in the logs. That setup flow creates your household admin password, adds your Telegram bot token, and adds your first user. After setup, the dashboard requires that admin password.

@@ -7,8 +7,9 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { steveDir, config } from "./config.js";
+import { validateProjectScriptsManifest, validateSkillDirectories } from "./skills.js";
 import { Vault, readKeyfile, initializeVault, hasKeyfile } from "./vault/index.js";
-import { toUserSlug, writeUserManifest } from "./users.js";
+import { normalizeUsers, toUserSlug, type UsersMap, uniqueUserSlugs, writeUserManifest } from "./users.js";
 
 // --- Directory and config setup ---
 
@@ -29,10 +30,15 @@ function syncSkills() {
   }
 }
 
-function setupUserWorkspace(userName: string) {
+export function setupUserWorkspace(userName: string) {
   const userDir = join(config.usersDir, toUserSlug(userName));
   for (const sub of ["memory", "memory/daily", "memory/nutrition", "memory/training", "memory/body-measurements"]) {
     mkdirSync(join(userDir, sub), { recursive: true });
+  }
+
+  const profilePath = join(userDir, "memory", "profile.md");
+  if (!existsSync(profilePath)) {
+    writeFileSync(profilePath, `# Profile\n\n## Name\n${userName}\n`, "utf-8");
   }
 
   // Sync project-controlled files
@@ -56,7 +62,7 @@ function setupUserWorkspace(userName: string) {
   }
 }
 
-function generateRuntimeConfig(users: Record<string, string>) {
+export function generateRuntimeConfig(users: UsersMap) {
   const mcpConfig = {
     type: "remote" as const,
     url: `http://steve:${config.mcpPort}/mcp`,
@@ -68,7 +74,11 @@ function generateRuntimeConfig(users: Record<string, string>) {
     mcp: { steve: mcpConfig },
   }, null, 2);
 
-  const agentMd = `---
+  for (const userName of uniqueUserSlugs(users)) {
+    const userDir = join(config.usersDir, toUserSlug(userName));
+    mkdirSync(userDir, { recursive: true });
+
+    const agentMd = `---
 description: >-
   Steve is a personal household assistant. Use this agent for all conversations.
 mode: primary
@@ -93,11 +103,10 @@ permissions:
     action: deny
     pattern: "*"
 ---
-`;
 
-  for (const userName of Object.values(users)) {
-    const userDir = join(config.usersDir, toUserSlug(userName));
-    mkdirSync(userDir, { recursive: true });
+Current Steve user: ${userName}
+When calling send_message, always use this exact userName: ${userName}
+`;
 
     writeFileSync(join(userDir, "opencode.json"), opencodeJson, "utf-8");
 
@@ -118,7 +127,7 @@ permissions:
 export interface SetupResult {
   vault: Vault | null;
   botToken: string;
-  users: Record<string, string>;
+  users: UsersMap;
 }
 
 export async function runSetup(): Promise<SetupResult> {
@@ -152,7 +161,11 @@ export async function runSetup(): Promise<SetupResult> {
   }
 
   const botToken = vault.getString("telegram/bot_token");
-  const users = vault.get("steve/users") as Record<string, string> | null;
+  const normalizedUsers = normalizeUsers(vault.get("steve/users"));
+  const users = normalizedUsers.users;
+  if (normalizedUsers.migrated && Object.keys(users).length > 0) {
+    vault.set("steve/users", users as any);
+  }
 
   if (!botToken || !users || Object.keys(users).length === 0) {
     createDirectories();
@@ -162,7 +175,9 @@ export async function runSetup(): Promise<SetupResult> {
   // Full setup
   createDirectories();
   syncSkills();
-  for (const userName of Object.values(users)) {
+  validateSkillDirectories(config.skillsDir);
+  validateProjectScriptsManifest(config.projectRoot);
+  for (const userName of uniqueUserSlugs(users)) {
     setupUserWorkspace(userName);
   }
   generateRuntimeConfig(users);

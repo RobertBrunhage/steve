@@ -13,10 +13,8 @@ import { setTelegramConnected, setVault } from "./health.js";
 import { TelegramChannel } from "./channels/telegram.js";
 import { registerChannel } from "./channels/index.js";
 import { hasKeyfile } from "./vault/index.js";
-import { writeUserManifest } from "./users.js";
+import { getAllowedTelegramIds, normalizeUsers, type UsersMap, writeUserManifest } from "./users.js";
 import type { Vault } from "./vault/index.js";
-
-type UsersMap = Record<string, string>;
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -29,7 +27,7 @@ async function waitFor(condition: () => boolean, intervalMs = 2000) {
 }
 
 function applyRuntimeConfig(botToken: string, users: UsersMap) {
-  const allowedUserIds = Object.keys(users).map(Number).filter((id) => id > 0);
+  const allowedUserIds = getAllowedTelegramIds(users);
   setRuntimeConfig({ botToken, users, allowedUserIds });
 }
 
@@ -57,8 +55,8 @@ async function waitForConfiguration(vault: Vault, botToken: string, users: Users
   await waitFor(() => vault.has("telegram/bot_token") && vault.has("steve/users"));
 
   const nextBotToken = vault.getString("telegram/bot_token");
-  const nextUsers = vault.get("steve/users") as UsersMap | null;
-  if (!nextBotToken || !nextUsers || Object.keys(nextUsers).length === 0) {
+  const nextUsers = normalizeUsers(vault.get("steve/users")).users;
+  if (!nextBotToken || Object.keys(nextUsers).length === 0) {
     p.log.error("Configuration completed but runtime values were missing");
     process.exit(1);
   }
@@ -163,7 +161,7 @@ async function main() {
 
 async function startServices(vault: Vault, botToken: string, users: UsersMap) {
   // MCP server
-  const channel = new TelegramChannel(botToken, users);
+  const channel = new TelegramChannel(botToken);
   registerChannel(channel);
 
   const mcpFactory = createMcpServerFactory(

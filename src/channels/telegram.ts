@@ -1,16 +1,22 @@
 import type { Channel, SendResult } from "./index.js";
-import { findUserId } from "../users.js";
+import { getRuntime } from "../config.js";
+import { getTelegramChatId } from "../users.js";
 
 export class TelegramChannel implements Channel {
   readonly name = "telegram";
 
-  constructor(
-    private botToken: string,
-    private users: Record<string, string>, // { chatId: userName }
-  ) {}
+  constructor(private botToken: string) {}
 
   private getChatId(userName: string): string | null {
-    return findUserId(this.users, userName);
+    return getTelegramChatId(getRuntime().users, userName);
+  }
+
+  private getBotToken(): string {
+    try {
+      return getRuntime().botToken || this.botToken;
+    } catch {
+      return this.botToken;
+    }
   }
 
   async sendMessage(userName: string, text: string, options?: { buttons?: string[][] }): Promise<SendResult> {
@@ -29,7 +35,7 @@ export class TelegramChannel implements Channel {
 
     // Try HTML parse mode first, fall back to plain text
     let res = await fetch(
-      `https://api.telegram.org/bot${this.botToken}/sendMessage`,
+      `https://api.telegram.org/bot${this.getBotToken()}/sendMessage`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -44,7 +50,7 @@ export class TelegramChannel implements Channel {
 
     if (!res.ok) {
       res = await fetch(
-        `https://api.telegram.org/bot${this.botToken}/sendMessage`,
+        `https://api.telegram.org/bot${this.getBotToken()}/sendMessage`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -70,7 +76,7 @@ export class TelegramChannel implements Channel {
     if (!chatId) return { ok: false, error: `Unknown user "${userName}"` };
 
     const res = await fetch(
-      `https://api.telegram.org/bot${this.botToken}/editMessageText`,
+      `https://api.telegram.org/bot${this.getBotToken()}/editMessageText`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

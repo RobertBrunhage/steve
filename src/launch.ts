@@ -11,6 +11,11 @@ function exec(cmd: string, quiet = false) {
   execSync(cmd, { stdio: quiet ? "ignore" : "inherit", cwd: projectRoot });
 }
 
+function runStage(label: string, cmd: string) {
+  p.log.step(label);
+  exec(cmd);
+}
+
 function detectHostname() {
   try {
     const host = execSync("hostname", { encoding: "utf-8" }).trim();
@@ -77,18 +82,16 @@ async function main() {
   }
 
   // Build
-  const s = p.spinner();
-  s.start("Building");
+  p.log.step("Preparing local Docker compose file");
   generateCompose([]);
   try {
-    exec("docker compose -f docker-compose.dev.yml build steve --quiet", true);
-    // Build custom OpenCode image for user agents
-    exec("docker build -t steve-opencode -f opencode.Dockerfile . -q", true);
-  } catch {
-    s.stop("Build failed");
+    runStage("Building Steve image (first run can take a few minutes)", "docker compose -f docker-compose.dev.yml build steve");
+    runStage("Building OpenCode image for user agents", "docker build -t steve-opencode -f opencode.Dockerfile .");
+  } catch (error) {
+    p.log.error(`Build failed: ${error instanceof Error ? error.message : error}`);
     process.exit(1);
   }
-  s.stop("Built");
+  p.log.success("Docker images are ready");
 
   // Start Steve only — user agents started from dashboard
   p.log.success("Starting Steve...");

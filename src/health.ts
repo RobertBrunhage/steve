@@ -1,5 +1,6 @@
 import { getRuntime } from "./config.js";
 import type { Vault } from "./vault/index.js";
+import { listVisibleVaultKeys } from "./vault/visible.js";
 import { toUserSlug, uniqueUserSlugs } from "./users.js";
 
 export interface HealthStatus {
@@ -50,7 +51,7 @@ export async function getHealth(): Promise<HealthStatus> {
     ? { status: telegramConnected ? "ok" : "error", message: telegramConnected ? undefined : "not connected" }
     : { status: "not_configured" };
 
-  const secretCount = vault ? vault.list().length : 0;
+  const secretCount = listVisibleVaultKeys(vault).length;
   const vaultStatus: HealthStatus["components"]["vault"] = secretCount > 0
     ? { status: "ok", secrets: secretCount }
     : { status: "not_configured", secrets: 0 };

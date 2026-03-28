@@ -1,7 +1,8 @@
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
-import { toUserSlug } from "./users.js";
+import type { Vault } from "./vault/index.js";
+import { getAllowedTelegramIds, normalizeUsers, toUserSlug, type UsersMap } from "./users.js";
 
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -11,9 +12,6 @@ const steveDir = process.env.STEVE_DIR || join(homedir(), ".steve");
 const vaultDir = process.env.STEVE_VAULT_DIR || "/vault";
 const mcpPort = Number(process.env.STEVE_MCP_PORT) || 3100;
 const webPort = Number(process.env.STEVE_WEB_PORT) || 3000;
-
-// users map: { "telegram_id": "Name" }
-export type UsersMap = Record<string, string>;
 
 export interface SteveConfig {
   projectRoot: string;
@@ -46,6 +44,15 @@ let _runtime: RuntimeConfig | null = null;
 
 export function setRuntimeConfig(rc: RuntimeConfig) {
   _runtime = rc;
+}
+
+export function refreshRuntimeConfigFromVault(vault: Vault) {
+  const users = normalizeUsers(vault.get("steve/users")).users;
+  setRuntimeConfig({
+    botToken: vault.getString("telegram/bot_token") || "",
+    users,
+    allowedUserIds: getAllowedTelegramIds(users),
+  });
 }
 
 export function getRuntime(): RuntimeConfig {

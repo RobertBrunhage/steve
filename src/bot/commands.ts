@@ -1,10 +1,11 @@
 import type { Bot } from "grammy";
 import type { Brain } from "../brain/index.js";
 import { getRuntime } from "../config.js";
+import { findUserByTelegramId } from "../users.js";
 import { handleBrainMessage } from "./message-handler.js";
 
 export function getUserName(telegramId: number): string {
-  return getRuntime().users[String(telegramId)] || "User";
+  return findUserByTelegramId(getRuntime().users, telegramId)?.name || "User";
 }
 
 export function registerCommands(

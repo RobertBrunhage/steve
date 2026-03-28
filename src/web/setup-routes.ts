@@ -2,9 +2,10 @@ import type { Hono } from "hono";
 import { config } from "../config.js";
 import { Vault, initializeVault } from "../vault/index.js";
 import { getHealth } from "../health.js";
+import { ensureUser, type UsersMap } from "../users.js";
 import { ADMIN_AUTH_KEY, hashPassword, verifyPassword } from "./auth.js";
 import { renderLogin, renderSetupComplete, renderSetupLocked } from "./views.js";
-import { validateTelegramId, validateUserSlug } from "./validate.js";
+import { validateUserSlug } from "./validate.js";
 import type { WebRouteDeps } from "./types.js";
 
 export function registerSetupRoutes(app: Hono, deps: WebRouteDeps) {
@@ -87,22 +88,17 @@ export function registerSetupRoutes(app: Hono, deps: WebRouteDeps) {
       return c.html(deps.buildSetupView(session.csrfToken, "Could not validate bot token. Check your internet connection."), 400);
     }
 
-    const users: Record<string, string> = {};
+    let users: UsersMap = {};
     for (let i = 0; i < 20; i++) {
-      const id = String(body[`user_id_${i}`] || "").trim();
       const rawName = String(body[`user_name_${i}`] || "").trim();
-      if (!id && !rawName) continue;
-
-      if (!validateTelegramId(id)) {
-        return c.html(deps.buildSetupView(session.csrfToken, "Telegram IDs must be numeric"), 400);
-      }
+      if (!rawName) continue;
 
       const validatedName = validateUserSlug(rawName);
       if (!validatedName.ok) {
         return c.html(deps.buildSetupView(session.csrfToken, validatedName.error), 400);
       }
 
-      users[id] = validatedName.value;
+      users = ensureUser(users, validatedName.value);
     }
 
     if (Object.keys(users).length === 0) {
@@ -128,7 +124,8 @@ export function registerSetupRoutes(app: Hono, deps: WebRouteDeps) {
     deps.clearSetupToken();
     deps.issueAdminSession(c);
 
-    return c.html(renderSetupComplete());
+    const firstUser = Object.keys(users)[0];
+    return c.html(renderSetupComplete(firstUser ? `/users/${encodeURIComponent(firstUser)}` : "/", firstUser ? "Connect Telegram" : "Go to Dashboard"));
   });
 
   app.get("/login", (c) => {

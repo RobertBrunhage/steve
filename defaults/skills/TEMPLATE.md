@@ -7,6 +7,7 @@ Use this template when creating new skills. A skill is a directory inside `skill
 ```
 skill-name/
   SKILL.md              # Required: frontmatter + instructions
+  skill.json            # Optional but recommended: script secret/capability manifest
   scripts/              # Optional: executable scripts the agent can run
     auth.sh             # e.g., OAuth flow helper
     fetch.sh            # e.g., API call wrapper
@@ -53,6 +54,46 @@ Write natural-language instructions for the agent. Include:
 - Scripts should return meaningful exit codes
 - Keep scripts focused on deterministic tasks (API calls, auth, data fetching)
 
+## skill.json
+
+Use `skill.json` to declare exactly which vault entries a script needs. Steve injects only the declared fields, which keeps secrets scoped tightly and improves output redaction.
+
+Example:
+
+```json
+{
+  "scripts": {
+    "fetch.sh": {
+      "secrets": [
+        {
+          "key": "{user}/weather",
+          "fields": ["api_key"]
+        }
+      ]
+    },
+    "refresh.sh": {
+      "secrets": [
+        {
+          "key": "{user}/weather",
+          "fields": ["client_id", "client_secret"]
+        },
+        {
+          "key": "{user}/weather-tokens",
+          "fields": ["refresh_token"]
+        }
+      ]
+    }
+  }
+}
+```
+
+### Rules
+
+- Use `{user}` or `{userName}` in vault keys and Steve substitutes the current user slug.
+- If `fields` is omitted, all fields in that vault entry are injected.
+- Keep manifests narrow. Only request the secrets a script actually needs.
+- New skills that need credentials should create `skill.json` alongside `SKILL.md`.
+
 ## Templates
 
 If your skill creates user files (logs, profiles, etc.), add templates in a `templates/` directory. The agent reads these before creating files to ensure consistent formatting across users.
@@ -61,7 +102,7 @@ If your skill creates user files (logs, profiles, etc.), add templates in a `tem
 
 Skills are global. Credentials are per-user.
 
-Per-user credentials are stored in the encrypted vault, managed through the secret manager web UI. When a script runs via `run_script`, credentials are automatically injected as environment variables.
+Per-user credentials are stored in the encrypted vault, managed through the secret manager web UI. When a script runs via `run_script`, Steve injects only the environment variables declared in `skill.json`.
 
 The vault key format is `{userName}/{skill-name}` with a JSON object value. Each field becomes `STEVE_CRED_{FIELD_NAME_UPPERCASED}`.
 

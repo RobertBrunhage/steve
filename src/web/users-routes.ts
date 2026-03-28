@@ -1,7 +1,8 @@
 import type { Hono } from "hono";
 import { existsSync } from "node:fs";
-import { config, getBaseUrl, getUserDir } from "../config.js";
-import { writeUserManifest } from "../users.js";
+import { config, getBaseUrl, getUserDir, refreshRuntimeConfigFromVault } from "../config.js";
+import { generateRuntimeConfig, setupUserWorkspace } from "../setup.js";
+import { addOrUpdateTelegramUser, ensureUser, getTelegramChatId, normalizeUsers, writeUserManifest } from "../users.js";
 import { getOpenCodePorts, saveOpenCodePorts } from "./common.js";
 import {
   getUserAgentLogs,
@@ -23,17 +24,40 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     if (!vault) return c.redirect("/");
 
     const name = String(result.body.name || "").trim();
-    const telegramId = String(result.body.telegram_id || "").trim();
     const validatedName = validateUserSlug(name);
-    if (!validatedName.ok || !validateTelegramId(telegramId)) {
+    if (!validatedName.ok) {
       return c.redirect("/");
     }
 
-    const existing = (vault.get("steve/users") as Record<string, string>) || {};
-    existing[telegramId] = validatedName.value;
-    vault.set("steve/users", existing as any);
-    writeUserManifest(config.dataDir, existing);
-    return c.redirect("/");
+    const existing = normalizeUsers(vault.get("steve/users")).users;
+    const updatedUsers = ensureUser(existing, validatedName.value);
+    vault.set("steve/users", updatedUsers as any);
+    refreshRuntimeConfigFromVault(vault);
+    setupUserWorkspace(validatedName.value);
+    generateRuntimeConfig(updatedUsers);
+    writeUserManifest(config.dataDir, updatedUsers);
+    return c.redirect(`/users/${validatedName.value}`);
+  });
+
+  app.post("/users/:name/telegram", async (c) => {
+    const result = await deps.requireAdminForm(c);
+    if (result instanceof Response) return result;
+
+    const vault = deps.getVault();
+    if (!vault) return c.redirect("/");
+
+    const validatedName = validateUserSlug(c.req.param("name"));
+    const telegramId = String(result.body.telegram_id || "").trim();
+    if (!validatedName.ok || !validateTelegramId(telegramId)) {
+      return c.redirect(`/users/${c.req.param("name")}`);
+    }
+
+    const existing = normalizeUsers(vault.get("steve/users")).users;
+    const updatedUsers = addOrUpdateTelegramUser(existing, validatedName.value, telegramId);
+    vault.set("steve/users", updatedUsers as any);
+    refreshRuntimeConfigFromVault(vault);
+    writeUserManifest(config.dataDir, updatedUsers);
+    return c.redirect(`/users/${validatedName.value}`);
   });
 
   app.post("/users/:name/start", async (c) => {
@@ -114,7 +138,10 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     const baseUrl = new URL(getBaseUrl());
     const ocUrl = ocPort ? `http://${baseUrl.hostname}:${ocPort}` : "";
 
-    return c.html(renderUserDetail(name, ocStatus, ocUrl, session.csrfToken));
+    const users = normalizeUsers(deps.getVault()?.get("steve/users")).users;
+    return c.html(renderUserDetail(name, ocStatus, ocUrl, session.csrfToken, {
+      telegramChatId: getTelegramChatId(users, name),
+    }));
   });
 
   app.get("/users/:name/logs", (c) => {

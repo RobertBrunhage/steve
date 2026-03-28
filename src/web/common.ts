@@ -2,9 +2,9 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { join } from "node:path";
 import { config } from "../config.js";
 import type { Vault } from "../vault/index.js";
-import { ADMIN_AUTH_KEY } from "./auth.js";
+import { isVisibleVaultKey, listVisibleVaultKeys } from "../vault/visible.js";
 
-export const RESERVED_VAULT_KEYS = new Set([ADMIN_AUTH_KEY, "telegram/bot_token", "steve/users"]);
+export const RESERVED_VAULT_KEYS = new Set(["steve/admin_auth", "steve/users"]);
 const SETUP_TOKEN_FILE = "setup-token.json";
 
 export interface SetupTokenRecord {
@@ -40,22 +40,59 @@ export function parseFields(body: Record<string, string | File>): Record<string,
 export function getFieldNames(v: Vault): Record<string, string[]> {
   const result: Record<string, string[]> = {};
   for (const key of v.list()) {
-    if (RESERVED_VAULT_KEYS.has(key)) continue;
+    if (!isVisibleVaultKey(key)) continue;
     const val = v.get(key);
     if (val && typeof val === "object") {
       result[key] = Object.keys(val);
+    } else if (typeof val === "string") {
+      result[key] = [key.split("/").pop() || "value"];
     }
   }
   return result;
 }
 
-export function valueToFields(val: Record<string, unknown> | null): [string, string][] {
+export function valueToFields(key: string, val: Record<string, unknown> | string | null): [string, string][] {
+  if (typeof val === "string") {
+    return [[key.split("/").pop() || "value", ""]];
+  }
   if (!val || typeof val !== "object") return [["", ""]];
-  return Object.entries(val).map(([k, v]) => [k, String(v)]);
+  return Object.entries(val).map(([k]) => [k, ""]);
+}
+
+export function applyFieldsToVaultValue(existingValue: Record<string, unknown> | string | null, fields: Record<string, string>): Record<string, string> | string {
+  if (typeof existingValue === "string") {
+    const firstValue = Object.values(fields)[0];
+    return firstValue || existingValue;
+  }
+  return fields;
+}
+
+export function mergeFieldsWithExistingValue(existingValue: Record<string, unknown> | string | null, fields: Record<string, string>): Record<string, string> | string {
+  if (typeof existingValue === "string") {
+    const firstValue = Object.values(fields)[0];
+    return firstValue || existingValue;
+  }
+
+  const existingRecord = existingValue && typeof existingValue === "object"
+    ? Object.fromEntries(Object.entries(existingValue).map(([key, value]) => [key, String(value)]))
+    : {};
+
+  const nextRecord: Record<string, string> = {};
+  for (const [field, submittedValue] of Object.entries(fields)) {
+    if (submittedValue) {
+      nextRecord[field] = submittedValue;
+      continue;
+    }
+    if (field in existingRecord) {
+      nextRecord[field] = existingRecord[field];
+    }
+  }
+
+  return nextRecord;
 }
 
 export function getVisibleVaultKeys(vault: Vault | null): string[] {
-  return (vault?.list() ?? []).filter((key) => !RESERVED_VAULT_KEYS.has(key));
+  return listVisibleVaultKeys(vault);
 }
 
 function setupTokenPath(): string {

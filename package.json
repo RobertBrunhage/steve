@@ -9,7 +9,7 @@
     "restore": "tsx src/restore.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "tsx test/setup.test.ts"
+    "test": "tsx test/setup.test.ts && tsx test/mcp.test.ts && tsx test/platform.test.ts"
   },
   "dependencies": {
     "@clack/prompts": "^1.1.0",

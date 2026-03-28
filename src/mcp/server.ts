@@ -8,6 +8,8 @@ import type { Channel } from "../channels/index.js";
 import { config, getBaseUrl } from "../config.js";
 import { loadUserJobs, saveUserJobs, type Job } from "../scheduler.js";
 import { toUserSlug } from "../users.js";
+import { appendRunScriptAudit } from "./audit.js";
+import { buildScriptExecutionContext, redactSecrets } from "./script-security.js";
 
 interface McpConfig {
   channel: Channel;
@@ -62,26 +64,6 @@ function getSkillFromPath(scriptPath: string): string | null {
   return null;
 }
 
-/** Build credential env vars from vault for a given user + skill */
-function buildCredEnv(vault: Vault | null, userName: string, skill: string | null): Record<string, string> {
-  if (!vault || !skill) return {};
-
-  const env: Record<string, string> = {};
-
-  // Load credentials matching {userName}/{skill}*
-  const entries = vault.getByPrefix(`${userName}/${skill}`);
-  for (const [key, value] of Object.entries(entries)) {
-    if (typeof value === "object" && value !== null) {
-      for (const [field, fieldValue] of Object.entries(value)) {
-        const envKey = `STEVE_CRED_${field.toUpperCase()}`;
-        env[envKey] = String(fieldValue);
-      }
-    }
-  }
-
-  return env;
-}
-
 export type McpServerFactory = () => McpServer;
 
 export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null): McpServerFactory {
@@ -105,11 +87,14 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
   }, async ({ userName, message, buttons }) => {
     const result = await channel.sendMessage(userName, message, buttons ? { buttons } : undefined);
     if (!result.ok) {
+      console.warn(`send_message failed for ${userName}: ${result.error || "unknown error"}`);
       return {
         content: [{ type: "text", text: `Error: ${result.error || "unknown error"}` }],
         isError: true,
       };
     }
+
+    console.log(`send_message delivered for ${userName}`);
 
     return {
       content: [{ type: "text", text: `Message sent to ${userName}` }],
@@ -221,9 +206,21 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
     }
 
     const skill = getSkillFromPath(resolved);
-    const credEnv = buildCredEnv(vault, userName, skill);
+    const scriptContext = buildScriptExecutionContext({
+      vault,
+      userName,
+      scriptPath: resolved,
+      dataDir,
+      projectRoot,
+      fallbackSkillName: skill,
+    });
+
+    if (!scriptContext.usedManifest && skill) {
+      console.warn(`run_script fallback secret injection used for ${skill}/${basename(resolved)}`);
+    }
 
     return new Promise((res) => {
+      const startedAt = Date.now();
       execFile("bash", [resolved, ...(args || [])], {
         timeout: 300_000,
         env: {
@@ -231,18 +228,9 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
           STEVE_PROJECT_ROOT: projectRoot,
           STEVE_DATA_DIR: dataDir,
           STEVE_BASE_URL: getBaseUrl(),
-          ...credEnv,
+          ...scriptContext.env,
         },
       }, (error, stdout, stderr) => {
-        if (error) {
-          res({
-            content: [{ type: "text", text: stderr || error.message }],
-            isError: true,
-          });
-          return;
-        }
-
-        // Handle save_to_vault convention: strip secrets before returning to AI
         let output = stdout || "(no output)";
         try {
           const parsed = JSON.parse(output);
@@ -252,10 +240,34 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
             delete parsed.save_to_vault;
             output = JSON.stringify(parsed);
           }
-        } catch {} // not JSON, pass through as-is
+        } catch {}
+
+        const redactedOutput = redactSecrets(output, scriptContext.injectedSecretValues);
+        const redactedError = redactSecrets(stderr || "", scriptContext.injectedSecretValues);
+        const safeOutput = redactedOutput.text;
+        const safeError = redactedError.text;
+        const auditEntry = {
+          timestamp: new Date().toISOString(),
+          userName,
+          script: resolved,
+          status: error ? "error" as const : "ok" as const,
+          durationMs: Date.now() - startedAt,
+          secretKeys: scriptContext.injectedSecretKeys,
+          usedManifest: scriptContext.usedManifest,
+          redactionCount: redactedOutput.redactionCount + redactedError.redactionCount,
+        };
+        appendRunScriptAudit(dataDir, auditEntry);
+
+        if (error) {
+          res({
+            content: [{ type: "text", text: safeError || safeOutput || error.message }],
+            isError: true,
+          });
+          return;
+        }
 
         res({
-          content: [{ type: "text", text: output }],
+          content: [{ type: "text", text: safeOutput }],
         });
       });
     });

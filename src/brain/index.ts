@@ -1,7 +1,7 @@
 import * as p from "@clack/prompts";
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/client";
 import { getRuntime } from "../config.js";
-import { findUserId, toUserSlug } from "../users.js";
+import { getTelegramChatId, toUserSlug } from "../users.js";
 
 type PromptPart =
   | { type: "text"; text: string }
@@ -19,7 +19,7 @@ const MIME_BY_EXTENSION: Record<string, string> = {
 // Direct Telegram API call as fallback when opencode fails entirely
 async function sendFallback(userName: string, message: string) {
   const rt = getRuntime();
-  const chatId = findUserId(rt.users, userName);
+  const chatId = getTelegramChatId(rt.users, userName);
 
   if (!chatId || !rt.botToken) return;
 
