@@ -35,5 +35,5 @@ export interface WebRouteDeps {
   requireAdminPage(c: Context): SessionRecord | Response;
   requireAdminApi(c: Context): SessionRecord | Response;
   requireAdminForm(c: Context): Promise<AdminFormResult | Response>;
-  buildSetupView(csrfToken: string, error?: string): string;
+  buildSetupView(csrfToken: string, error?: string, authOnly?: boolean): string;
 }

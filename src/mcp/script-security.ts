@@ -103,6 +103,24 @@ function injectSecretFields(env: Record<string, string>, injectedSecretValues: s
   }
 }
 
+function getVaultObjectCaseInsensitive(vault: Vault, key: string): { resolvedKey: string; value: Record<string, unknown> } | null {
+  const exact = vault.get(key);
+  if (exact && typeof exact === "object") {
+    return { resolvedKey: key, value: exact };
+  }
+
+  const lower = key.toLowerCase();
+  for (const existingKey of vault.list()) {
+    if (existingKey.toLowerCase() !== lower) continue;
+    const value = vault.get(existingKey);
+    if (value && typeof value === "object") {
+      return { resolvedKey: existingKey, value };
+    }
+  }
+
+  return null;
+}
+
 export function buildScriptExecutionContext(options: {
   vault: Vault | null;
   userName: string;
@@ -126,10 +144,10 @@ export function buildScriptExecutionContext(options: {
   if (scriptManifest?.secrets) {
     for (const secret of scriptManifest.secrets) {
       const key = resolveTemplate(secret.key, userName);
-      const value = vault.get(key);
-      if (!value || typeof value !== "object") continue;
-      injectedSecretKeys.push(key);
-      injectSecretFields(env, injectedSecretValues, value, secret.fields);
+      const match = getVaultObjectCaseInsensitive(vault, key);
+      if (!match) continue;
+      injectedSecretKeys.push(match.resolvedKey);
+      injectSecretFields(env, injectedSecretValues, match.value, secret.fields);
     }
 
     return {

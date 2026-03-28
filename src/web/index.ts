@@ -130,8 +130,8 @@ export function startWebServer(vault: Vault | null, port: number, options: WebSe
     return { session, body };
   }
 
-  function buildSetupView(csrfToken: string, error?: string): string {
-    return renderSetup({ needsVaultPassword: !currentVault, csrfToken, error });
+  function buildSetupView(csrfToken: string, error?: string, authOnly = false): string {
+    return renderSetup({ needsVaultPassword: !currentVault, csrfToken, error, authOnly });
   }
 
   const deps: WebRouteDeps = {

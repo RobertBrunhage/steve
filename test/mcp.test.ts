@@ -57,6 +57,7 @@ function run() {
   vault.set("robert/weather-tokens", { refresh_token: "refresh-secret", access_token: "unused" } as any);
   vault.set("robert/legacy", { client_id: "legacy-id", client_secret: "legacy-secret" } as any);
   vault.set("robert/global", { token: "project-secret" } as any);
+  vault.set("Robert/withings", { client_id: "mixed-client", client_secret: "mixed-secret" } as any);
 
   const manifestContext = buildScriptExecutionContext({
     vault,
@@ -104,6 +105,39 @@ function run() {
   test("project scripts: support manifest-based secret injection", () => {
     assert.equal(projectContext.usedManifest, true);
     assert.deepEqual(projectContext.env, { STEVE_CRED_TOKEN: "project-secret" });
+  });
+
+  const mixedCaseContext = buildScriptExecutionContext({
+    vault,
+    userName: "robert",
+    scriptPath: join(dataDir, "skills", "weather", "scripts", "fetch.sh"),
+    dataDir,
+    projectRoot,
+  });
+
+  test("manifest: exact secret lookup is case-insensitive for migrated keys", () => {
+    const withingsManifestPath = join(dataDir, "skills", "withings", "skill.json");
+    mkdirSync(join(dataDir, "skills", "withings", "scripts"), { recursive: true });
+    writeFileSync(withingsManifestPath, JSON.stringify({
+      scripts: {
+        "setup.sh": {
+          secrets: [{ key: "{user}/withings", fields: ["client_id", "client_secret"] }],
+        },
+      },
+    }, null, 2));
+    const ctx = buildScriptExecutionContext({
+      vault,
+      userName: "robert",
+      scriptPath: join(dataDir, "skills", "withings", "scripts", "setup.sh"),
+      dataDir,
+      projectRoot,
+      fallbackSkillName: "withings",
+    });
+    assert.deepEqual(ctx.env, {
+      STEVE_CRED_CLIENT_ID: "mixed-client",
+      STEVE_CRED_CLIENT_SECRET: "mixed-secret",
+    });
+    assert.deepEqual(ctx.injectedSecretKeys, ["Robert/withings"]);
   });
 
   test("redaction: removes injected secret values from output", () => {

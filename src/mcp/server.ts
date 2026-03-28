@@ -180,6 +180,9 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
     },
   }, async ({ script, args }) => {
     const userName = args?.[0] ? toUserSlug(args[0]) : "";
+    const scriptArgs = userName && args?.length
+      ? [userName, ...args.slice(1)]
+      : (args || []);
 
     // Normalize script path: OpenCode sends paths relative to its container
     // (e.g. "skills/withings/scripts/setup.sh" or "/data/skills/withings/scripts/setup.sh")
@@ -221,7 +224,7 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
 
     return new Promise((res) => {
       const startedAt = Date.now();
-      execFile("bash", [resolved, ...(args || [])], {
+      execFile("bash", [resolved, ...scriptArgs], {
         timeout: 300_000,
         env: {
           ...process.env,

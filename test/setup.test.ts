@@ -466,6 +466,63 @@ async function run() {
     assert.equal(setupLockedAfterInit.headers.get("location"), "/login");
   });
 
+  // --- Test 5: Restored data only needs dashboard password ---
+
+  rmSync(testDir, { recursive: true, force: true });
+  mkdirSync(testDir, { recursive: true });
+
+  const { initializeVault } = await import("../src/vault/index.js");
+  const restoredKey = initializeVault(join(testDir, "vault"), "restore-password-123");
+  const restoredVault = new Vault(join(testDir, "vault"), restoredKey);
+  restoredVault.set("telegram/bot_token", "restored-bot-token" as any);
+  restoredVault.set("steve/users", {
+    robert: {
+      name: "robert",
+      channels: {},
+    },
+  } as any);
+
+  const { startWebServer: startRestoredWebServer } = await import("../src/web/index.js");
+  const restoredWeb = startRestoredWebServer(restoredVault, 0, { listen: false, telegramFetch });
+  const restoredSetupToken = restoredWeb.setupUrl ? new URL(restoredWeb.setupUrl).searchParams.get("token") : null;
+  const restoredSetupPage = await restoredWeb.app.request(`/setup?token=${restoredSetupToken}`);
+  const restoredSetupCookie = getCookieValue(restoredSetupPage, "steve_bootstrap");
+  const restoredSetupHtml = await restoredSetupPage.text();
+  const restoredCsrf = extractCsrf(restoredSetupHtml);
+
+  test("restored setup: only asks for the missing dashboard password", () => {
+    assert.equal(restoredSetupPage.status, 200);
+    assert.match(restoredSetupHtml, /Your backup is restored/);
+    assert.doesNotMatch(restoredSetupHtml, /name="bot_token"/);
+    assert.doesNotMatch(restoredSetupHtml, /name="user_name_0"/);
+  });
+
+  const restoredSetupPost = await restoredWeb.app.request("/setup", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      cookie: restoredSetupCookie || "",
+    },
+    body: new URLSearchParams({
+      _csrf: restoredCsrf || "",
+      password: "new-dashboard-pass",
+      confirm_password: "new-dashboard-pass",
+    }),
+  });
+  const restoredVaultAfter = new Vault(join(testDir, "vault"), restoredKey);
+
+  test("restored setup: preserves restored data and only adds dashboard auth", () => {
+    assert.equal(restoredSetupPost.status, 200);
+    assert.ok(restoredVaultAfter.get("steve/admin_auth"));
+    assert.equal(restoredVaultAfter.getString("telegram/bot_token"), "restored-bot-token");
+    assert.deepEqual(restoredVaultAfter.get("steve/users"), {
+      robert: {
+        name: "robert",
+        channels: {},
+      },
+    });
+  });
+
   // Cleanup
   try {
     rmSync(testDir, { recursive: true, force: true });

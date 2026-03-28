@@ -389,18 +389,20 @@ export function renderUserDetail(name: string, ocStatus: string, ocUrl: string, 
   `);
 }
 
-export function renderSetup(options: { needsVaultPassword: boolean; csrfToken: string; error?: string }): string {
-  const { needsVaultPassword, csrfToken, error } = options;
+export function renderSetup(options: { needsVaultPassword: boolean; csrfToken: string; error?: string; authOnly?: boolean }): string {
+  const { needsVaultPassword, csrfToken, error, authOnly } = options;
   const errorHtml = error ? flash(error, "error") : "";
   const input = "w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-white font-mono placeholder-zinc-600 focus:border-border-focus focus:outline-none";
-  const passwordHelp = needsVaultPassword
+  const passwordHelp = authOnly
+    ? "Your restored data is already in place. Set the dashboard password to finish setup."
+    : needsVaultPassword
     ? "Use one password for Steve. It protects your vault and signs you into the dashboard."
     : "Choose your dashboard password. You can reuse your existing vault password.";
 
   return layout("Setup", `
     <div class="text-center mb-8">
       <h1 class="text-2xl font-semibold text-white">Welcome to Steve</h1>
-      <p class="text-sm text-zinc-500 mt-2">Let's get you set up. This takes about 2 minutes.</p>
+      <p class="text-sm text-zinc-500 mt-2">${authOnly ? "Your backup is restored. Finish dashboard setup to continue." : "Let's get you set up. This takes about 2 minutes."}</p>
     </div>
     ${errorHtml}
     <form method="POST" action="/setup" class="space-y-8">
@@ -420,6 +422,7 @@ export function renderSetup(options: { needsVaultPassword: boolean; csrfToken: s
         </div>
       </div>
 
+      ${authOnly ? "" : `
       <div class="bg-surface-card border border-border rounded-lg p-5">
         <h2 class="text-sm font-medium text-white mb-1">Step 2 — Set up Telegram</h2>
         <ol class="text-xs text-zinc-500 mb-4 space-y-1 list-decimal list-inside">
@@ -441,10 +444,10 @@ export function renderSetup(options: { needsVaultPassword: boolean; csrfToken: s
           <input type="text" name="user_name_0" placeholder="Robert" required
             class="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-white placeholder-zinc-600 focus:border-border-focus focus:outline-none">
         </div>
-      </div>
+      </div>`}
 
       <button type="submit"
-        class="w-full py-3 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors font-medium">Finish Setup</button>
+        class="w-full py-3 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors font-medium">${authOnly ? "Finish Dashboard Setup" : "Finish Setup"}</button>
     </form>
   `);
 }
