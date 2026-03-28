@@ -3,10 +3,11 @@ import { existsSync, readdirSync } from "node:fs";
 import { join, resolve, normalize, basename, dirname } from "node:path";
 import { execFile } from "node:child_process";
 import { z } from "zod";
+import { appendUserActivity } from "../activity.js";
 import type { Vault } from "../vault/index.js";
 import type { Channel } from "../channels/index.js";
 import { config, getBaseUrl } from "../config.js";
-import { loadUserJobs, saveUserJobs, type Job } from "../scheduler.js";
+import { loadUserJobs, removeUserJob, type Job, upsertUserJob } from "../scheduler.js";
 import { toUserSlug } from "../users.js";
 import { appendRunScriptAudit } from "./audit.js";
 import { buildScriptExecutionContext, redactSecrets } from "./script-security.js";
@@ -79,6 +80,13 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
     const result = await channel.sendMessage(userName, message, buttons ? { buttons } : undefined);
     if (!result.ok) {
       console.warn(`send_message failed for ${userName}: ${result.error || "unknown error"}`);
+      appendUserActivity(config.dataDir, {
+        timestamp: new Date().toISOString(),
+        userName,
+        type: "message_sent",
+        status: "error",
+        summary: `Failed to send message${result.error ? `: ${result.error}` : ""}`,
+      });
       return {
         content: [{ type: "text", text: `Error: ${result.error || "unknown error"}` }],
         isError: true,
@@ -86,6 +94,13 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
     }
 
     console.log(`send_message delivered for ${userName}`);
+    appendUserActivity(config.dataDir, {
+      timestamp: new Date().toISOString(),
+      userName,
+      type: "message_sent",
+      status: "ok",
+      summary: `Sent message: ${message.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120) || "(empty message)"}`,
+    });
 
     return {
       content: [{ type: "text", text: `Message sent to ${userName}` }],
@@ -134,19 +149,13 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
     }
 
     if (action === "add" && job) {
-      // Upsert: replace existing job with same ID, or append
-      let jobs = loadUserJobs(user);
-      jobs = jobs.filter((j) => j.id !== job.id);
-      jobs.push(job);
-      saveUserJobs(user, jobs);
+      upsertUserJob(user, job);
       return { content: [{ type: "text", text: `Job "${job.name}" added` }] };
     }
 
     if (action === "remove" && id) {
-      const jobs = loadUserJobs(user);
-      const filtered = jobs.filter((j) => j.id !== id);
-      saveUserJobs(user, filtered);
-      return { content: [{ type: "text", text: filtered.length < jobs.length ? `Job "${id}" removed` : `Job "${id}" not found` }] };
+      const removed = removeUserJob(user, id);
+      return { content: [{ type: "text", text: removed ? `Job "${id}" removed` : `Job "${id}" not found` }] };
     }
 
     return { content: [{ type: "text", text: "Invalid action or missing parameters" }], isError: true };
@@ -159,10 +168,16 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
       userName: z.string().optional().describe("Optional current user name to link directly to that user's integrations page"),
       integration: z.string().optional().describe("Optional integration name; currently used only for better instructions alongside the returned URL"),
     },
-  }, async ({ userName }) => {
+  }, async ({ userName, integration }) => {
     const targetUser = userName ? toUserSlug(userName) : "";
+    const targetIntegration = integration ? toUserSlug(integration) : "";
+    const targetUrl = targetUser
+      ? targetIntegration
+        ? `${getBaseUrl()}/users/${encodeURIComponent(targetUser)}/integrations/new?integration=${encodeURIComponent(targetIntegration)}`
+        : `${getBaseUrl()}/users/${encodeURIComponent(targetUser)}/integrations`
+      : `${getBaseUrl()}/settings`;
     return {
-      content: [{ type: "text", text: targetUser ? `${getBaseUrl()}/users/${encodeURIComponent(targetUser)}#secrets` : `${getBaseUrl()}/settings` }],
+      content: [{ type: "text", text: targetUrl }],
     };
   });
 
@@ -261,6 +276,13 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
           redactionCount: redactedOutput.redactionCount + redactedError.redactionCount,
         };
         appendRunScriptAudit(dataDir, auditEntry);
+        appendUserActivity(config.dataDir, {
+          timestamp: auditEntry.timestamp,
+          userName: userName || "system",
+          type: "script",
+          status: error ? "error" : "ok",
+          summary: `${error ? "Script failed" : "Script ran"}: ${skill ? `${skill}/` : ""}${basename(resolved)}`,
+        });
 
         if (error) {
           res({

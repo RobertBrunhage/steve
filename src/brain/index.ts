@@ -190,6 +190,7 @@ export class Brain {
       }
     } catch (error) {
       p.log.error(`Isolated task failed for ${userName}: ${error instanceof Error ? error.message : error}`);
+      throw error;
     }
   }
 

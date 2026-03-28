@@ -194,6 +194,8 @@ async function run() {
   const { startWebServer } = await import("../src/web/index.js");
   const { readKeyfile, Vault } = await import("../src/vault/index.js");
   const { getRuntime } = await import("../src/config.js");
+  const { appendUserActivity } = await import("../src/activity.js");
+  const { loadUserJobs, saveUserJobs } = await import("../src/scheduler.js");
 
   const telegramFetch: typeof fetch = async () => new Response(
     JSON.stringify({ ok: true }),
@@ -376,11 +378,72 @@ async function run() {
   });
   const friendPageHtml = await friendPage.text();
 
-  test("web users: user page is where Telegram gets connected", () => {
+  test("web users: overview page focuses on connection and activity", () => {
     assert.equal(friendPage.status, 200);
     assert.match(friendPageHtml, /Connections/);
     assert.match(friendPageHtml, /Connect Telegram/);
-    assert.match(friendPageHtml, /Secrets & Integrations/);
+    assert.match(friendPageHtml, /Recent Activity/);
+    assert.match(friendPageHtml, /href="\/users\/friend\/integrations"/);
+  });
+
+  saveUserJobs("robert", [{
+    id: "doctor-checkin",
+    name: "Doctor Check-In",
+    prompt: "Ask if I booked the appointment",
+    at: "2030-01-01T10:00:00.000Z",
+    disabled: true,
+    lastRunAt: "2029-12-20T09:00:00.000Z",
+    lastStatus: "error",
+    lastError: "Needs confirmation",
+  }]);
+  saveUserJobs("friend", [{
+    id: "weekly-review",
+    name: "Weekly Review",
+    prompt: "Ask for a weekly review",
+    cron: "0 9 * * 1",
+  }]);
+
+  const jobsPage = await app.request("/jobs", { headers: { cookie: adminCookie || "" } });
+  const jobsHtml = await jobsPage.text();
+
+  test("web jobs: jobs page shows scheduled jobs across users", () => {
+    assert.equal(jobsPage.status, 200);
+    assert.match(jobsHtml, /Jobs & Routines/);
+    assert.match(jobsHtml, /Doctor Check-In/);
+    assert.match(jobsHtml, /Weekly Review/);
+    assert.match(jobsHtml, /Needs confirmation/);
+    assert.match(jobsHtml, /Resume/);
+    assert.match(jobsHtml, /Pause/);
+  });
+
+  const pauseJob = await app.request("/jobs/toggle", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      cookie: adminCookie || "",
+    },
+    body: new URLSearchParams({ _csrf: adminCsrf || "", user: "friend", id: "weekly-review", disabled: "true" }),
+  });
+
+  test("web jobs: jobs can be paused from the jobs page", () => {
+    assert.equal(pauseJob.status, 302);
+    assert.equal(pauseJob.headers.get("location"), "/jobs");
+    assert.equal(loadUserJobs("friend")[0]?.disabled, true);
+  });
+
+  const deleteJob = await app.request("/jobs/delete", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      cookie: adminCookie || "",
+    },
+    body: new URLSearchParams({ _csrf: adminCsrf || "", user: "robert", id: "doctor-checkin" }),
+  });
+
+  test("web jobs: jobs can be deleted from the jobs page", () => {
+    assert.equal(deleteJob.status, 302);
+    assert.equal(deleteJob.headers.get("location"), "/jobs");
+    assert.equal(loadUserJobs("robert").length, 0);
   });
 
   const connectTelegram = await app.request("/users/friend/telegram", {
@@ -446,7 +509,19 @@ async function run() {
     assert.equal(preservedVault.getString("system/telegram/bot_token"), "updated-token");
   });
 
-  const newSecretPage = await app.request("/users/friend/secrets/new", {
+  const integrationsPage = await app.request("/users/friend/integrations", {
+    headers: { cookie: adminCookie || "" },
+  });
+  const integrationsHtml = await integrationsPage.text();
+
+  test("web users: integrations live on their own subpage", () => {
+    assert.equal(integrationsPage.status, 200);
+    assert.match(integrationsHtml, /Secrets & Integrations/);
+    assert.match(integrationsHtml, /Add Integration/);
+    assert.match(integrationsHtml, /When Steve asks for app credentials in Telegram, add them here/);
+  });
+
+  const newSecretPage = await app.request("/users/friend/integrations/new", {
     headers: { cookie: adminCookie || "" },
   });
   const newSecretHtml = await newSecretPage.text();
@@ -456,7 +531,7 @@ async function run() {
     assert.match(newSecretHtml, /Add Integration for friend/);
   });
 
-  const createUserSecret = await app.request("/users/friend/secrets", {
+  const createUserSecret = await app.request("/users/friend/integrations", {
     method: "POST",
     headers: {
       "content-type": "application/x-www-form-urlencoded",
@@ -475,24 +550,50 @@ async function run() {
 
   test("web users: user integrations save under the user page", () => {
     assert.equal(createUserSecret.status, 302);
-    assert.equal(createUserSecret.headers.get("location"), "/users/friend#secrets");
+    assert.equal(createUserSecret.headers.get("location"), "/users/friend/integrations");
     assert.deepEqual(userSecretVault.get("users/friend/withings/app"), {
       client_id: "client-id-123",
       client_secret: "client-secret-456",
     });
   });
 
-  const friendPageAfterSecret = await app.request("/users/friend", {
+  appendUserActivity(testDir, {
+    timestamp: "2030-01-02T08:00:00.000Z",
+    userName: "friend",
+    type: "job",
+    status: "ok",
+    summary: "Completed job: Weekly Review",
+  });
+  appendUserActivity(testDir, {
+    timestamp: "2030-01-02T08:30:00.000Z",
+    userName: "friend",
+    type: "script",
+    status: "info",
+    summary: "Script ran: withings/setup.sh",
+  });
+
+  const friendPageAfterSecret = await app.request("/users/friend/integrations", {
     headers: { cookie: adminCookie || "" },
   });
   const friendPageAfterSecretHtml = await friendPageAfterSecret.text();
 
-  test("web users: integrations are shown on the user page", () => {
+  test("web users: integrations are shown on the integrations page", () => {
     assert.equal(friendPageAfterSecret.status, 200);
     assert.match(friendPageAfterSecretHtml, /Withings/);
   });
 
-  const editUserSecret = await app.request("/users/friend/secrets/withings/edit", {
+  const friendOverviewAfterActivity = await app.request("/users/friend", {
+    headers: { cookie: adminCookie || "" },
+  });
+  const friendOverviewAfterActivityHtml = await friendOverviewAfterActivity.text();
+
+  test("web users: recent activity is shown on the overview page", () => {
+    assert.equal(friendOverviewAfterActivity.status, 200);
+    assert.match(friendOverviewAfterActivityHtml, /Completed job: Weekly Review/);
+    assert.match(friendOverviewAfterActivityHtml, /Script ran: withings\/setup.sh/);
+  });
+
+  const editUserSecret = await app.request("/users/friend/integrations/withings/edit", {
     headers: { cookie: adminCookie || "" },
   });
   const editUserSecretHtml = await editUserSecret.text();
@@ -503,7 +604,7 @@ async function run() {
     assert.match(editUserSecretHtml, /Leave blank to keep current value/);
   });
 
-  const updateUserSecret = await app.request("/users/friend/secrets/withings", {
+  const updateUserSecret = await app.request("/users/friend/integrations/withings", {
     method: "POST",
     headers: {
       "content-type": "application/x-www-form-urlencoded",

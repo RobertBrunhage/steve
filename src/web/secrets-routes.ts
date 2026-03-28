@@ -2,7 +2,9 @@ import type { Hono } from "hono";
 import { getHealth } from "../health.js";
 import { getTelegramApiBase, refreshRuntimeConfigFromVault } from "../config.js";
 import { getTelegramBotToken, setTelegramBotToken } from "../secrets.js";
-import { renderHome, renderSettings } from "./views.js";
+import { getScheduledEntryNextRunAt, listScheduledEntries, removeUserJob, setUserJobDisabled } from "../scheduler.js";
+import { renderHome, renderJobsPage, renderSettings } from "./views.js";
+import { validateUserSlug } from "./validate.js";
 import type { WebRouteDeps } from "./types.js";
 
 export function registerSecretsRoutes(app: Hono, deps: WebRouteDeps) {
@@ -48,5 +50,45 @@ export function registerSecretsRoutes(app: Hono, deps: WebRouteDeps) {
     setTelegramBotToken(vault, nextToken);
     refreshRuntimeConfigFromVault(vault);
     return c.redirect("/settings");
+  });
+
+  app.get("/jobs", (c) => {
+    const session = deps.requireAdminPage(c);
+    if (session instanceof Response) return session;
+
+    const entries = listScheduledEntries().map((entry) => ({
+      ...entry,
+      nextRunAt: getScheduledEntryNextRunAt(entry),
+    }));
+    return c.html(renderJobsPage(entries, session.csrfToken));
+  });
+
+  app.post("/jobs/toggle", async (c) => {
+    const result = await deps.requireAdminForm(c);
+    if (result instanceof Response) return result;
+
+    const validatedUser = validateUserSlug(String(result.body.user || ""));
+    if (!validatedUser.ok) return c.redirect("/jobs");
+
+    const id = String(result.body.id || "");
+    const disabled = String(result.body.disabled || "") === "true";
+    if (id) {
+      setUserJobDisabled(validatedUser.value, id, disabled);
+    }
+    return c.redirect("/jobs");
+  });
+
+  app.post("/jobs/delete", async (c) => {
+    const result = await deps.requireAdminForm(c);
+    if (result instanceof Response) return result;
+
+    const validatedUser = validateUserSlug(String(result.body.user || ""));
+    if (!validatedUser.ok) return c.redirect("/jobs");
+
+    const id = String(result.body.id || "");
+    if (id) {
+      removeUserJob(validatedUser.value, id);
+    }
+    return c.redirect("/jobs");
   });
 }

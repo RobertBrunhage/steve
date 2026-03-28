@@ -16,7 +16,7 @@ if [[ -z "$CLIENT_ID" || -z "$CLIENT_SECRET" ]]; then
   "Create a Withings developer app at https://developer.withings.com",
   "Set callback URL to: ${BASE_URL}/callback",
   "Open your Steve user page and add client_id and client_secret to the Withings integration"
-],"secret_manager":"${BASE_URL}/users/${USERNAME}#secrets"}
+],"secret_manager":"${BASE_URL}/users/${USERNAME}/integrations/new?integration=withings"}
 EOF
   exit 0
 fi

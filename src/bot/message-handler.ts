@@ -1,8 +1,9 @@
 import { writeFile, mkdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { Bot, Context } from "grammy";
+import { appendUserActivity } from "../activity.js";
 import type { Brain } from "../brain/index.js";
-import { getRuntime, getTelegramApiBase, getUserDir } from "../config.js";
+import { config, getRuntime, getTelegramApiBase, getUserDir } from "../config.js";
 import { getUserName } from "./commands.js";
 
 /** Download photo to user's workspace tmp dir. Returns {hostPath, containerPath}. */
@@ -48,6 +49,13 @@ export async function handleBrainMessage(
 ): Promise<void> {
   const stopTyping = keepTyping(ctx);
   const userName = getUserName(ctx.from?.id ?? 0);
+  appendUserActivity(config.dataDir, {
+    timestamp: new Date().toISOString(),
+    userName,
+    type: "message_received",
+    status: "info",
+    summary: `Received message: ${userMessage.replace(/\s+/g, " ").trim().slice(0, 120)}`,
+  });
   try {
     await brain.think(userMessage, userName);
   } finally {
@@ -74,6 +82,13 @@ export function registerMessageHandler(
   bot.on("message:photo", (ctx) => {
     const userName = getUserName(ctx.from?.id ?? 0);
     const caption = ctx.message.caption || "The user sent a photo.";
+    appendUserActivity(config.dataDir, {
+      timestamp: new Date().toISOString(),
+      userName,
+      type: "message_received",
+      status: "info",
+      summary: `Received photo${ctx.message.caption ? `: ${caption.replace(/\s+/g, " ").trim().slice(0, 100)}` : ""}`,
+    });
 
     downloadPhoto(ctx, userName).then((photo) => {
       if (!photo) {

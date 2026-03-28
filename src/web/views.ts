@@ -1,5 +1,7 @@
 import type { HealthStatus } from "../health.js";
+import type { ActivityEntry } from "../activity.js";
 import type { UserAppSecretSummary } from "../secrets.js";
+import type { ScheduledEntry } from "../scheduler.js";
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;");
@@ -23,6 +25,7 @@ function nav(csrfToken: string): string {
   <nav class="flex items-center justify-between gap-4 mb-8 border-b border-border pb-4">
     <div class="flex gap-4">
       <a href="/" class="text-sm text-zinc-400 hover:text-white transition-colors">Dashboard</a>
+      <a href="/jobs" class="text-sm text-zinc-400 hover:text-white transition-colors">Jobs</a>
       <a href="/settings" class="text-sm text-zinc-400 hover:text-white transition-colors">Settings</a>
     </div>
     <form method="POST" action="/logout" class="inline">
@@ -87,6 +90,41 @@ function titleCase(value: string): string {
     .filter(Boolean)
     .map((part) => part[0]?.toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString("en-SE", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function renderActivityItems(items: ActivityEntry[]): string {
+  if (items.length === 0) {
+    return `<p class="text-sm text-zinc-500">No recent activity yet.</p>`;
+  }
+
+  return items.map((item) => {
+    const statusColor = item.status === "error"
+      ? "bg-red-400"
+      : item.status === "ok"
+        ? "bg-emerald-400"
+        : "bg-zinc-500";
+    return `
+      <div class="flex items-start gap-3 py-3 border-b border-border last:border-b-0">
+        <span class="inline-block w-2 h-2 rounded-full ${statusColor} mt-1.5 flex-shrink-0"></span>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm text-zinc-200">${escapeHtml(item.summary)}</p>
+          <p class="text-xs text-zinc-600 mt-1">${escapeHtml(formatDateTime(item.timestamp))}</p>
+        </div>
+      </div>`;
+  }).join("");
 }
 
 export function renderHome(health: HealthStatus, csrfToken: string): string {
@@ -192,38 +230,115 @@ export function renderSettings(telegramBotToken: string | null, csrfToken: strin
   `);
 }
 
-export function renderUserDetail(name: string, ocStatus: string, ocUrl: string, csrfToken: string, options?: { telegramChatId?: string | null; userSecrets?: UserAppSecretSummary[] }): string {
+export function renderJobsPage(entries: Array<ScheduledEntry & { nextRunAt: string | null }>, csrfToken: string): string {
+  const rows = entries.length === 0
+    ? `<p class="text-sm text-zinc-500">No jobs or routines configured yet.</p>`
+    : entries.map((entry) => {
+      const statusLabel = entry.kind === "heartbeat"
+        ? "System"
+        : entry.disabled
+          ? "Paused"
+          : entry.lastStatus === "error"
+            ? "Error"
+            : entry.lastStatus === "ok"
+              ? "Healthy"
+              : "Scheduled";
+      const statusClass = entry.kind === "heartbeat"
+        ? "bg-zinc-900 text-zinc-400 border-border"
+        : entry.disabled
+          ? "bg-zinc-900 text-zinc-400 border-border"
+          : entry.lastStatus === "error"
+            ? "bg-red-950 text-red-300 border-red-800"
+            : entry.lastStatus === "ok"
+              ? "bg-emerald-950 text-emerald-300 border-emerald-800"
+              : "bg-blue-950 text-blue-300 border-blue-800";
+      const schedule = entry.at
+        ? `One-off at ${formatDateTime(entry.at)}`
+        : entry.cron
+          ? `${escapeHtml(entry.cron)}${entry.timezone ? ` (${escapeHtml(entry.timezone)})` : ""}`
+          : "-";
+      return `
+        <div class="bg-surface-card border border-border rounded-lg p-4">
+          <div class="flex items-start justify-between gap-4">
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2 flex-wrap mb-2">
+                <a href="/users/${encodeURIComponent(entry.userName)}" class="text-sm font-medium text-white hover:text-blue-300 transition-colors capitalize">${escapeHtml(entry.userName)}</a>
+                <span class="text-zinc-700">/</span>
+                <span class="text-sm text-zinc-300">${escapeHtml(entry.name)}</span>
+                <span class="text-[11px] px-2 py-0.5 rounded-full border ${statusClass}">${statusLabel}</span>
+              </div>
+              <div class="grid grid-cols-2 gap-3 text-xs text-zinc-500">
+                <div><span class="text-zinc-600">Schedule:</span> ${schedule}</div>
+                <div><span class="text-zinc-600">Next run:</span> ${escapeHtml(formatDateTime(entry.nextRunAt))}</div>
+                <div><span class="text-zinc-600">Last run:</span> ${escapeHtml(formatDateTime(entry.lastRunAt))}</div>
+                <div><span class="text-zinc-600">Last result:</span> ${escapeHtml(entry.lastStatus ? titleCase(entry.lastStatus) : entry.kind === "heartbeat" ? "Managed by Steve" : "Not run yet")}</div>
+              </div>
+              ${entry.lastError ? `<p class="text-xs text-red-300 mt-3">${escapeHtml(entry.lastError)}</p>` : ""}
+            </div>
+            ${entry.kind === "job" ? `
+            <div class="flex gap-2 flex-shrink-0">
+              <form method="POST" action="/jobs/toggle" class="inline">
+                ${hiddenCsrf(csrfToken)}
+                <input type="hidden" name="user" value="${escapeHtml(entry.userName)}">
+                <input type="hidden" name="id" value="${escapeHtml(entry.id)}">
+                <input type="hidden" name="disabled" value="${entry.disabled ? "false" : "true"}">
+                <button type="submit" class="px-3 py-1.5 text-xs rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors">${entry.disabled ? "Resume" : "Pause"}</button>
+              </form>
+              <form method="POST" action="/jobs/delete" class="inline" onsubmit="return confirm('Delete ${escapeHtml(entry.name)}?')">
+                ${hiddenCsrf(csrfToken)}
+                <input type="hidden" name="user" value="${escapeHtml(entry.userName)}">
+                <input type="hidden" name="id" value="${escapeHtml(entry.id)}">
+                <button type="submit" class="px-3 py-1.5 text-xs rounded-md bg-zinc-800 text-zinc-300 hover:bg-red-900 hover:text-red-300 transition-colors">Delete</button>
+              </form>
+            </div>` : ""}
+          </div>
+        </div>`;
+    }).join("");
+
+  return layout("Jobs", `
+    ${nav(csrfToken)}
+    <div class="flex items-center justify-between mb-8">
+      <div>
+        <h1 class="text-xl font-semibold text-white">Jobs & Routines</h1>
+        <p class="text-sm text-zinc-500 mt-1">Inspect scheduled jobs across the household and pause or remove them when needed.</p>
+      </div>
+    </div>
+    <div class="space-y-3">${rows}</div>
+  `);
+}
+
+type UserPageTab = "overview" | "integrations" | "agent";
+
+interface RenderUserOptions {
+  telegramChatId?: string | null;
+  userSecrets?: UserAppSecretSummary[];
+  recentActivity?: ActivityEntry[];
+}
+
+function renderUserTabs(name: string, activeTab: UserPageTab): string {
+  const tabs: Array<{ id: UserPageTab; label: string; href: string }> = [
+    { id: "overview", label: "Overview", href: `/users/${encodeURIComponent(name)}` },
+    { id: "integrations", label: "Integrations", href: `/users/${encodeURIComponent(name)}/integrations` },
+    { id: "agent", label: "Agent", href: `/users/${encodeURIComponent(name)}/agent` },
+  ];
+
+  return `
+    <div class="flex gap-2 mb-6 overflow-x-auto pb-1">
+      ${tabs.map((tab) => `
+        <a href="${tab.href}" class="px-3 py-1.5 text-sm rounded-full border transition-colors whitespace-nowrap ${activeTab === tab.id ? "bg-zinc-100 text-zinc-900 border-zinc-100" : "bg-surface-card text-zinc-400 border-border hover:text-white hover:border-zinc-600"}">
+          ${tab.label}
+        </a>`).join("")}
+    </div>`;
+}
+
+function renderUserHeader(name: string, ocStatus: string, csrfToken: string): string {
   const dot = ocStatus === "running"
     ? '<span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>'
     : '<span class="inline-block w-2 h-2 rounded-full bg-red-400"></span>';
-  const telegramConnected = !!options?.telegramChatId;
-  const secrets = options?.userSecrets || [];
-  const secretsHtml = secrets.length === 0
-    ? `<p class="text-sm text-zinc-500">No integrations saved for this user yet.</p>`
-    : secrets.map((secret) => `
-      <div class="bg-surface border border-border rounded-lg p-4">
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <h3 class="text-sm font-medium text-white">${escapeHtml(titleCase(secret.integration))}</h3>
-            <p class="text-xs text-zinc-500 mt-1">${escapeHtml(secret.fields.join(", "))}</p>
-          </div>
-          <div class="flex gap-2 flex-shrink-0">
-            <a href="/users/${encodeURIComponent(name)}/secrets/${encodeURIComponent(secret.integration)}/edit"
-              class="px-3 py-1.5 text-xs rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors">Edit</a>
-            <form method="POST" action="/users/${encodeURIComponent(name)}/secrets/${encodeURIComponent(secret.integration)}/delete" class="inline" onsubmit="return confirm('Delete ${escapeHtml(titleCase(secret.integration))}?')">
-              ${hiddenCsrf(csrfToken)}
-              <button type="submit"
-                class="px-3 py-1.5 text-xs rounded-md bg-zinc-800 text-zinc-300 hover:bg-red-900 hover:text-red-300 transition-colors">Delete</button>
-            </form>
-          </div>
-        </div>
-      </div>`).join("");
-
-  return layout(`${name}`, `
-    ${nav(csrfToken)}
+  return `
     <a href="/" class="text-sm text-zinc-500 hover:text-zinc-300 transition-colors">&larr; Dashboard</a>
 
-    <div class="flex items-center justify-between mt-4 mb-8">
+    <div class="flex items-center justify-between mt-4 mb-6 gap-4">
       <div class="flex items-center gap-3">
         ${dot}
         <h1 class="text-xl font-semibold text-white capitalize">${escapeHtml(name)}</h1>
@@ -246,13 +361,27 @@ export function renderUserDetail(name: string, ocStatus: string, ocUrl: string, 
           </form>
         `}
       </div>
-    </div>
+    </div>`;
+}
 
+function renderUserFrame(name: string, ocStatus: string, csrfToken: string, activeTab: UserPageTab, body: string): string {
+  return layout(`${name}`, `
+    ${nav(csrfToken)}
+    ${renderUserHeader(name, ocStatus, csrfToken)}
+    ${renderUserTabs(name, activeTab)}
+    ${body}
+  `);
+}
+
+export function renderUserOverview(name: string, ocStatus: string, csrfToken: string, options?: RenderUserOptions): string {
+  const telegramConnected = !!options?.telegramChatId;
+  const integrationCount = options?.userSecrets?.length || 0;
+  return renderUserFrame(name, ocStatus, csrfToken, "overview", `
     <div class="bg-surface-card border border-border rounded-lg p-5 mb-6">
       <div class="flex items-center justify-between gap-4 mb-4">
         <div>
           <h2 class="text-sm font-medium text-white">Connections</h2>
-          <p class="text-xs text-zinc-500 mt-1">Connect Telegram and other future channels for this user.</p>
+          <p class="text-xs text-zinc-500 mt-1">Connect Telegram so Steve knows where to talk to this user.</p>
         </div>
         <span class="text-xs px-2.5 py-1 rounded-full ${telegramConnected ? "bg-emerald-950 text-emerald-300 border border-emerald-800" : "bg-zinc-900 text-zinc-400 border border-border"}">
           Telegram ${telegramConnected ? "connected" : "not connected"}
@@ -268,23 +397,75 @@ export function renderUserDetail(name: string, ocStatus: string, ocUrl: string, 
         <button type="submit"
           class="px-4 py-2 text-sm rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors whitespace-nowrap">${telegramConnected ? "Update Telegram" : "Connect Telegram"}</button>
       </form>
-      <p class="text-xs text-zinc-600 mt-2">This links the Steve user <code>${escapeHtml(name)}</code> to one Telegram chat. Use <strong class="text-zinc-400">@userinfobot</strong> to find the ID if you need it.</p>
+      <p class="text-xs text-zinc-600 mt-2">Use <strong class="text-zinc-400">@userinfobot</strong> to find the chat ID, then paste it here once.</p>
     </div>
 
-    <div id="secrets" class="bg-surface-card border border-border rounded-lg p-5 mb-6">
+    <div class="grid grid-cols-2 gap-3 mb-6">
+      <a href="/users/${encodeURIComponent(name)}/integrations" class="bg-surface-card border border-border rounded-lg p-4 hover:border-zinc-600 transition-colors">
+        <h2 class="text-sm font-medium text-white mb-1">Integrations</h2>
+        <p class="text-xs text-zinc-500">${integrationCount === 0 ? "No integrations saved yet" : `${integrationCount} integration${integrationCount === 1 ? "" : "s"} configured`}</p>
+      </a>
+      <a href="/users/${encodeURIComponent(name)}/agent" class="bg-surface-card border border-border rounded-lg p-4 hover:border-zinc-600 transition-colors">
+        <h2 class="text-sm font-medium text-white mb-1">Agent</h2>
+        <p class="text-xs text-zinc-500">${ocStatus === "running" ? "Inspect OpenCode and logs" : "Start the agent to inspect runtime state"}</p>
+      </a>
+    </div>
+
+    <div class="bg-surface-card border border-border rounded-lg p-5">
+      <div class="flex items-center justify-between gap-4 mb-4">
+        <div>
+          <h2 class="text-sm font-medium text-white">Recent Activity</h2>
+          <p class="text-xs text-zinc-500 mt-1">A quick view of recent messages, jobs, and scripts for this user.</p>
+        </div>
+      </div>
+      <div>
+        ${renderActivityItems(options?.recentActivity || [])}
+      </div>
+    </div>
+  `);
+}
+
+export function renderUserIntegrationsPage(name: string, ocStatus: string, csrfToken: string, options?: RenderUserOptions): string {
+  const secrets = options?.userSecrets || [];
+  const secretsHtml = secrets.length === 0
+    ? `<p class="text-sm text-zinc-500">No integrations saved for this user yet.</p>`
+    : secrets.map((secret) => `
+      <div class="bg-surface border border-border rounded-lg p-4">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h3 class="text-sm font-medium text-white">${escapeHtml(titleCase(secret.integration))}</h3>
+            <p class="text-xs text-zinc-500 mt-1">${escapeHtml(secret.fields.join(", "))}</p>
+          </div>
+          <div class="flex gap-2 flex-shrink-0">
+            <a href="/users/${encodeURIComponent(name)}/integrations/${encodeURIComponent(secret.integration)}/edit"
+              class="px-3 py-1.5 text-xs rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors">Edit</a>
+            <form method="POST" action="/users/${encodeURIComponent(name)}/integrations/${encodeURIComponent(secret.integration)}/delete" class="inline" onsubmit="return confirm('Delete ${escapeHtml(titleCase(secret.integration))}?')">
+              ${hiddenCsrf(csrfToken)}
+              <button type="submit"
+                class="px-3 py-1.5 text-xs rounded-md bg-zinc-800 text-zinc-300 hover:bg-red-900 hover:text-red-300 transition-colors">Delete</button>
+            </form>
+          </div>
+        </div>
+      </div>`).join("");
+  return renderUserFrame(name, ocStatus, csrfToken, "integrations", `
+    <div class="bg-surface-card border border-border rounded-lg p-5">
       <div class="flex items-center justify-between gap-4 mb-4">
         <div>
           <h2 class="text-sm font-medium text-white">Secrets & Integrations</h2>
-          <p class="text-xs text-zinc-500 mt-1">Store this user's app credentials here. OAuth tokens stay managed behind the scenes.</p>
+          <p class="text-xs text-zinc-500 mt-1">When Steve asks for app credentials in Telegram, add them here. OAuth tokens stay managed behind the scenes.</p>
         </div>
-        <a href="/users/${encodeURIComponent(name)}/secrets/new"
+        <a href="/users/${encodeURIComponent(name)}/integrations/new"
           class="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors whitespace-nowrap">Add Integration</a>
       </div>
       <div class="space-y-3">
         ${secretsHtml}
       </div>
     </div>
+  `);
+}
 
+export function renderUserAgentPage(name: string, ocStatus: string, ocUrl: string, csrfToken: string): string {
+  return renderUserFrame(name, ocStatus, csrfToken, "agent", `
     ${ocUrl ? `
     <div class="bg-surface-card border border-border rounded-lg overflow-hidden mb-6">
       <div class="flex items-center justify-between px-5 py-3 border-b border-border">
@@ -321,18 +502,18 @@ export function renderUserDetail(name: string, ocStatus: string, ocUrl: string, 
   `);
 }
 
-export function renderUserSecretNewForm(userName: string, error: string | undefined, csrfToken: string): string {
+export function renderUserSecretNewForm(userName: string, error: string | undefined, csrfToken: string, integration = ""): string {
   const errorHtml = error ? flash(error, "error") : "";
   return layout(`Add Integration`, `
     ${nav(csrfToken)}
-    <a href="/users/${encodeURIComponent(userName)}#secrets" class="text-sm text-zinc-500 hover:text-zinc-300 transition-colors">&larr; Back to ${escapeHtml(userName)}</a>
+    <a href="/users/${encodeURIComponent(userName)}/integrations" class="text-sm text-zinc-500 hover:text-zinc-300 transition-colors">&larr; Back to ${escapeHtml(userName)}</a>
     <h1 class="text-xl font-semibold text-white mt-4 mb-6">Add Integration for ${escapeHtml(userName)}</h1>
     ${errorHtml}
-    <form method="POST" action="/users/${encodeURIComponent(userName)}/secrets">
+    <form method="POST" action="/users/${encodeURIComponent(userName)}/integrations">
       ${hiddenCsrf(csrfToken)}
       <div>
         <label class="block text-sm text-zinc-400 mb-1">Integration name</label>
-        <input type="text" id="integration" name="integration" placeholder="e.g. withings" required
+        <input type="text" id="integration" name="integration" placeholder="e.g. withings" required value="${escapeHtml(integration)}"
           class="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-white font-mono placeholder-zinc-600 focus:border-border-focus focus:outline-none">
         <p class="text-xs text-zinc-600 mt-2">Use a short slug like <code>withings</code> or <code>weather</code>.</p>
       </div>
@@ -365,7 +546,7 @@ export function renderUserSecretNewForm(userName: string, error: string | undefi
       <div class="flex gap-3 mt-8">
         <button type="submit"
           class="px-5 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors">Save</button>
-        <a href="/users/${encodeURIComponent(userName)}#secrets"
+        <a href="/users/${encodeURIComponent(userName)}/integrations"
           class="px-5 py-2 text-sm rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors">Cancel</a>
       </div>
     </form>
@@ -389,10 +570,10 @@ export function renderUserSecretEditForm(userName: string, integration: string, 
   const nextIdx = fields.length;
   return layout(`Edit ${integration}`, `
     ${nav(csrfToken)}
-    <a href="/users/${encodeURIComponent(userName)}#secrets" class="text-sm text-zinc-500 hover:text-zinc-300 transition-colors">&larr; Back to ${escapeHtml(userName)}</a>
+    <a href="/users/${encodeURIComponent(userName)}/integrations" class="text-sm text-zinc-500 hover:text-zinc-300 transition-colors">&larr; Back to ${escapeHtml(userName)}</a>
     <h1 class="text-xl font-semibold text-white mt-4 mb-6">Edit ${escapeHtml(titleCase(integration))}</h1>
     ${errorHtml}
-    <form method="POST" action="/users/${encodeURIComponent(userName)}/secrets/${encodeURIComponent(integration)}">
+    <form method="POST" action="/users/${encodeURIComponent(userName)}/integrations/${encodeURIComponent(integration)}">
       ${hiddenCsrf(csrfToken)}
       <div>
         <label class="block text-sm text-zinc-400 mb-1">Fields</label>
@@ -407,7 +588,7 @@ export function renderUserSecretEditForm(userName: string, integration: string, 
       <div class="flex gap-3 mt-8">
         <button type="submit"
           class="px-5 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors">Save</button>
-        <a href="/users/${encodeURIComponent(userName)}#secrets"
+        <a href="/users/${encodeURIComponent(userName)}/integrations"
           class="px-5 py-2 text-sm rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors">Cancel</a>
       </div>
     </form>

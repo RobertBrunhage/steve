@@ -1,5 +1,6 @@
 import type { Hono } from "hono";
 import { existsSync } from "node:fs";
+import { readUserActivity } from "../activity.js";
 import { config, getBaseUrl, getUserDir, refreshRuntimeConfigFromVault } from "../config.js";
 import { deleteUserAppSecret, getUserAppSecret, listUserAppSecrets, setUserAppSecret } from "../secrets.js";
 import { generateRuntimeConfig, setupUserWorkspace } from "../setup.js";
@@ -13,11 +14,38 @@ import {
   startUserAgent,
   stopUserAgent,
 } from "./docker.js";
-import { renderUserDetail, renderUserSecretEditForm, renderUserSecretNewForm } from "./views.js";
+import { renderUserAgentPage, renderUserIntegrationsPage, renderUserOverview, renderUserSecretEditForm, renderUserSecretNewForm } from "./views.js";
 import { validateIntegrationSlug, validateTelegramId, validateUserSlug } from "./validate.js";
 import type { WebRouteDeps } from "./types.js";
 
 export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
+  async function getUserPageState(name: string) {
+    const userDir = getUserDir(name);
+    if (!existsSync(userDir)) return null;
+
+    let ocStatus = "unknown";
+    try {
+      const res = await fetch(`http://opencode-${name}:3456`, { signal: AbortSignal.timeout(2000) });
+      ocStatus = res.ok ? "running" : "stopped";
+    } catch {
+      ocStatus = "stopped";
+    }
+
+    const ports = getOpenCodePorts();
+    const ocPort = ports[name] || 0;
+    const baseUrl = new URL(getBaseUrl());
+    const ocUrl = ocPort ? `http://${baseUrl.hostname}:${ocPort}` : "";
+    const users = normalizeUsers(deps.getVault()?.get("steve/users")).users;
+
+    return {
+      ocStatus,
+      ocUrl,
+      telegramChatId: getTelegramChatId(users, name),
+      userSecrets: listUserAppSecrets(deps.getVault(), name),
+      recentActivity: readUserActivity(config.dataDir, name, 6),
+    };
+  }
+
   app.post("/users/add", async (c) => {
     const result = await deps.requireAdminForm(c);
     if (result instanceof Response) return result;
@@ -62,16 +90,18 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     return c.redirect(`/users/${validatedName.value}`);
   });
 
-  app.get("/users/:name/secrets/new", (c) => {
+  app.get("/users/:name/integrations/new", (c) => {
     const session = deps.requireAdminPage(c);
     if (session instanceof Response) return session;
 
     const validatedName = validateUserSlug(c.req.param("name"));
     if (!validatedName.ok) return c.redirect("/");
-    return c.html(renderUserSecretNewForm(validatedName.value, undefined, session.csrfToken));
+    const validatedInitialIntegration = validateIntegrationSlug(String(c.req.query("integration") || ""));
+    const initialIntegration = validatedInitialIntegration.ok ? validatedInitialIntegration.value : "";
+    return c.html(renderUserSecretNewForm(validatedName.value, undefined, session.csrfToken, initialIntegration));
   });
 
-  app.post("/users/:name/secrets", async (c) => {
+  app.post("/users/:name/integrations", async (c) => {
     const result = await deps.requireAdminForm(c);
     if (result instanceof Response) return result;
 
@@ -83,19 +113,19 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
 
     const validatedIntegration = validateIntegrationSlug(String(result.body.integration || ""));
     if (!validatedIntegration.ok) {
-      return c.html(renderUserSecretNewForm(validatedName.value, validatedIntegration.error, result.session.csrfToken), 400);
+      return c.html(renderUserSecretNewForm(validatedName.value, validatedIntegration.error, result.session.csrfToken, String(result.body.integration || "")), 400);
     }
 
     const fields = parseFields(result.body);
     if (Object.keys(fields).length === 0) {
-      return c.html(renderUserSecretNewForm(validatedName.value, "At least one field is required", result.session.csrfToken), 400);
+      return c.html(renderUserSecretNewForm(validatedName.value, "At least one field is required", result.session.csrfToken, validatedIntegration.value), 400);
     }
 
     setUserAppSecret(vault, validatedName.value, validatedIntegration.value, fields);
-    return c.redirect(`/users/${validatedName.value}#secrets`);
+    return c.redirect(`/users/${validatedName.value}/integrations`);
   });
 
-  app.get("/users/:name/secrets/:integration/edit", (c) => {
+  app.get("/users/:name/integrations/:integration/edit", (c) => {
     const session = deps.requireAdminPage(c);
     if (session instanceof Response) return session;
 
@@ -105,7 +135,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
 
     const vault = deps.getVault();
     const current = getUserAppSecret(vault, validatedName.value, validatedIntegration.value);
-    if (!current) return c.redirect(`/users/${validatedName.value}#secrets`);
+    if (!current) return c.redirect(`/users/${validatedName.value}/integrations`);
 
     return c.html(renderUserSecretEditForm(
       validatedName.value,
@@ -116,7 +146,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     ));
   });
 
-  app.post("/users/:name/secrets/:integration", async (c) => {
+  app.post("/users/:name/integrations/:integration", async (c) => {
     const result = await deps.requireAdminForm(c);
     if (result instanceof Response) return result;
 
@@ -128,7 +158,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     if (!validatedName.ok || !validatedIntegration.ok) return c.redirect("/");
 
     const current = getUserAppSecret(vault, validatedName.value, validatedIntegration.value);
-    if (!current) return c.redirect(`/users/${validatedName.value}#secrets`);
+    if (!current) return c.redirect(`/users/${validatedName.value}/integrations`);
 
     const fields = parseFields(result.body);
     if (Object.keys(fields).length === 0) {
@@ -144,10 +174,10 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     const existingValue = typeof current.value === "object" ? current.value as Record<string, unknown> : current.value;
     const nextValue = mergeFieldsWithExistingValue(existingValue, fields);
     setUserAppSecret(vault, validatedName.value, validatedIntegration.value, nextValue as Record<string, string>);
-    return c.redirect(`/users/${validatedName.value}#secrets`);
+    return c.redirect(`/users/${validatedName.value}/integrations`);
   });
 
-  app.post("/users/:name/secrets/:integration/delete", async (c) => {
+  app.post("/users/:name/integrations/:integration/delete", async (c) => {
     const result = await deps.requireAdminForm(c);
     if (result instanceof Response) return result;
 
@@ -159,7 +189,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     if (!validatedName.ok || !validatedIntegration.ok) return c.redirect("/");
 
     deleteUserAppSecret(vault, validatedName.value, validatedIntegration.value);
-    return c.redirect(`/users/${validatedName.value}#secrets`);
+    return c.redirect(`/users/${validatedName.value}/integrations`);
   });
 
   app.post("/users/:name/start", async (c) => {
@@ -224,27 +254,31 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     const validatedName = validateUserSlug(c.req.param("name"));
     if (!validatedName.ok) return c.redirect("/");
     const name = validatedName.value;
-    const userDir = getUserDir(name);
-    if (!existsSync(userDir)) return c.redirect("/");
+    const state = await getUserPageState(name);
+    if (!state) return c.redirect("/");
+    return c.html(renderUserOverview(name, state.ocStatus, session.csrfToken, state));
+  });
 
-    let ocStatus = "unknown";
-    try {
-      const res = await fetch(`http://opencode-${name}:3456`, { signal: AbortSignal.timeout(2000) });
-      ocStatus = res.ok ? "running" : "stopped";
-    } catch {
-      ocStatus = "stopped";
-    }
+  app.get("/users/:name/integrations", async (c) => {
+    const session = deps.requireAdminPage(c);
+    if (session instanceof Response) return session;
 
-    const ports = getOpenCodePorts();
-    const ocPort = ports[name] || 0;
-    const baseUrl = new URL(getBaseUrl());
-    const ocUrl = ocPort ? `http://${baseUrl.hostname}:${ocPort}` : "";
+    const validatedName = validateUserSlug(c.req.param("name"));
+    if (!validatedName.ok) return c.redirect("/");
+    const state = await getUserPageState(validatedName.value);
+    if (!state) return c.redirect("/");
+    return c.html(renderUserIntegrationsPage(validatedName.value, state.ocStatus, session.csrfToken, state));
+  });
 
-    const users = normalizeUsers(deps.getVault()?.get("steve/users")).users;
-    return c.html(renderUserDetail(name, ocStatus, ocUrl, session.csrfToken, {
-      telegramChatId: getTelegramChatId(users, name),
-      userSecrets: listUserAppSecrets(deps.getVault(), name),
-    }));
+  app.get("/users/:name/agent", async (c) => {
+    const session = deps.requireAdminPage(c);
+    if (session instanceof Response) return session;
+
+    const validatedName = validateUserSlug(c.req.param("name"));
+    if (!validatedName.ok) return c.redirect("/");
+    const state = await getUserPageState(validatedName.value);
+    if (!state) return c.redirect("/");
+    return c.html(renderUserAgentPage(validatedName.value, state.ocStatus, state.ocUrl, session.csrfToken));
   });
 
   app.get("/users/:name/logs", (c) => {
