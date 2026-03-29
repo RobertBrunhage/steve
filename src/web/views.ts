@@ -201,7 +201,7 @@ export function renderHome(health: HealthStatus, csrfToken: string): string {
   `);
 }
 
-export function renderSettings(telegramBotToken: string | null, csrfToken: string, error?: string): string {
+export function renderSettings(telegramBotToken: string | null, steveVersion: string, csrfToken: string, error?: string): string {
   const errorHtml = error ? flash(error, "error") : "";
   return layout("Settings", `
     ${nav(csrfToken)}
@@ -212,6 +212,10 @@ export function renderSettings(telegramBotToken: string | null, csrfToken: strin
       </div>
     </div>
     ${errorHtml}
+    <div class="bg-surface-card border border-border rounded-lg p-5 mb-6">
+      <h2 class="text-sm font-medium text-white mb-1">Version</h2>
+      <p class="text-xs text-zinc-500">Current runtime version: <code>${escapeHtml(steveVersion)}</code></p>
+    </div>
     <div id="system-secrets" class="bg-surface-card border border-border rounded-lg p-5">
       <h2 class="text-sm font-medium text-white mb-1">Telegram</h2>
       <p class="text-xs text-zinc-500 mb-4">This bot token powers Steve globally across all users.</p>

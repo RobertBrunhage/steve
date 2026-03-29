@@ -1,6 +1,6 @@
 services:
   steve:
-    image: ${STEVE_IMAGE:-ghcr.io/robertbrunhage/steve:latest}
+    image: ${STEVE_IMAGE:-ghcr.io/robertbrunhage/steve:main}
     restart: unless-stopped
     ports:
       - "${STEVE_WEB_PORT:-3000}:${STEVE_WEB_PORT:-3000}"
@@ -10,7 +10,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - STEVE_HOSTNAME=${STEVE_HOSTNAME:-localhost}
-      - STEVE_OPENCODE_IMAGE=${STEVE_OPENCODE_IMAGE:-ghcr.io/robertbrunhage/steve-opencode:latest}
+      - STEVE_OPENCODE_IMAGE=${STEVE_OPENCODE_IMAGE:-ghcr.io/robertbrunhage/steve-opencode:main}
+      - STEVE_VERSION=${STEVE_VERSION:-dev}
       - STEVE_PROJECT=${STEVE_PROJECT:-steve}
       - STEVE_WEB_PORT=${STEVE_WEB_PORT:-3000}
       - STEVE_OPENCODE_PORT_BASE=${STEVE_OPENCODE_PORT_BASE:-3456}

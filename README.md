@@ -170,6 +170,7 @@ Vault is AES-256-GCM encrypted. A keyfile auto-decrypts on startup — password 
 steve up                 # Start Steve from published images
 steve down               # Stop Steve
 steve logs               # Follow logs
+steve update             # Update to the newest published release
 steve update skills      # Copy bundled skills to every user
 steve update skills --force  # Overwrite bundled skills for every user
 steve setup-url          # Print the one-time setup URL
@@ -191,6 +192,8 @@ pnpm backup              # Alias for ./steve backup
 pnpm restore <file>      # Alias for ./steve restore
 pnpm doctor              # Health check
 ```
+
+Published installs track versioned releases, not `latest`. Each Steve release publishes matching `steve` and `steve-opencode` image tags, while `main` continues to publish dev images for trunk-based work.
 
 ## Current Deployment Model
 

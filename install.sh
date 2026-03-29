@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP=steve
 REPO_SLUG=${STEVE_REPO:-robertbrunhage/steve}
-DEFAULT_REF=${STEVE_REF:-main}
+DEFAULT_REF=${STEVE_REF:-}
 
 INSTALL_ROOT=${STEVE_INSTALL_DIR:-$HOME/.steve}
 BIN_DIR="$INSTALL_ROOT/bin"
@@ -14,12 +14,15 @@ DEFAULT_HOSTNAME=localhost
 DEFAULT_PROJECT=steve
 DEFAULT_WEB_PORT=3000
 DEFAULT_OPENCODE_PORT_BASE=3456
-DEFAULT_STEVE_IMAGE=ghcr.io/robertbrunhage/steve:latest
-DEFAULT_OPENCODE_IMAGE=ghcr.io/robertbrunhage/steve-opencode:latest
+DEFAULT_STEVE_IMAGE_REPO=ghcr.io/robertbrunhage/steve
+DEFAULT_OPENCODE_IMAGE_REPO=ghcr.io/robertbrunhage/steve-opencode
 DEFAULT_TELEGRAM_API_BASE=https://api.telegram.org
 
 requested_ref="$DEFAULT_REF"
 no_modify_path=false
+RAW_BASE=""
+DEFAULT_STEVE_IMAGE=""
+DEFAULT_OPENCODE_IMAGE=""
 
 usage() {
     cat <<EOF
@@ -64,8 +67,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-RAW_BASE="https://raw.githubusercontent.com/$REPO_SLUG/$requested_ref"
-
 need_cmd() {
     if ! command -v "$1" >/dev/null 2>&1; then
         printf 'Error: required command not found: %s\n' "$1" >&2
@@ -75,6 +76,36 @@ need_cmd() {
 
 print_step() {
     printf '\n==> %s\n' "$1"
+}
+
+resolve_latest_release_ref() {
+    local latest
+    latest=$(curl -fsSL "https://api.github.com/repos/$REPO_SLUG/releases/latest" 2>/dev/null | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1 || true)
+    if [[ -n "$latest" ]]; then
+        printf '%s\n' "$latest"
+    else
+        printf 'main\n'
+    fi
+}
+
+image_for_ref() {
+    local repo=$1
+    local ref=$2
+    printf '%s:%s\n' "$repo" "$ref"
+}
+
+resolve_requested_ref() {
+    if [[ -n "$requested_ref" ]]; then
+        return
+    fi
+    requested_ref=$(resolve_latest_release_ref)
+}
+
+apply_release_ref() {
+    resolve_requested_ref
+    RAW_BASE="https://raw.githubusercontent.com/$REPO_SLUG/$requested_ref"
+    DEFAULT_STEVE_IMAGE=$(image_for_ref "$DEFAULT_STEVE_IMAGE_REPO" "$requested_ref")
+    DEFAULT_OPENCODE_IMAGE=$(image_for_ref "$DEFAULT_OPENCODE_IMAGE_REPO" "$requested_ref")
 }
 
 detect_hostname() {
@@ -98,6 +129,8 @@ write_env() {
     host=$(detect_hostname)
 
     cat > "$ENV_FILE" <<EOF
+STEVE_RELEASE_REF=$requested_ref
+STEVE_VERSION=$requested_ref
 STEVE_PROJECT=$DEFAULT_PROJECT
 STEVE_WEB_PORT=$DEFAULT_WEB_PORT
 STEVE_OPENCODE_PORT_BASE=$DEFAULT_OPENCODE_PORT_BASE
@@ -120,10 +153,29 @@ COMPOSE_FILE="\$INSTALL_ROOT/docker-compose.yml"
 ENV_FILE="\$INSTALL_ROOT/.env"
 REPO_SLUG="${REPO_SLUG}"
 REF="${requested_ref}"
-RAW_BASE="https://raw.githubusercontent.com/${REPO_SLUG}/${requested_ref}"
 DEFAULT_PROJECT="${DEFAULT_PROJECT}"
 DEFAULT_WEB_PORT="${DEFAULT_WEB_PORT}"
 DEFAULT_STEVE_IMAGE="${DEFAULT_STEVE_IMAGE}"
+DEFAULT_OPENCODE_IMAGE="${DEFAULT_OPENCODE_IMAGE}"
+DEFAULT_STEVE_IMAGE_REPO="${DEFAULT_STEVE_IMAGE_REPO}"
+DEFAULT_OPENCODE_IMAGE_REPO="${DEFAULT_OPENCODE_IMAGE_REPO}"
+DEFAULT_TELEGRAM_API_BASE="${DEFAULT_TELEGRAM_API_BASE}"
+
+resolve_latest_release_ref() {
+    local latest
+    latest=$(curl -fsSL "https://api.github.com/repos/${REPO_SLUG}/releases/latest" 2>/dev/null | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1 || true)
+    if [[ -n "\$latest" ]]; then
+        printf '%s\n' "\$latest"
+    else
+        printf '%s\n' "\$REF"
+    fi
+}
+
+image_for_ref() {
+    local repo=\$1
+    local ref=\$2
+    printf '%s:%s\n' "\$repo" "\$ref"
+}
 
 if ! command -v docker >/dev/null 2>&1; then
     printf 'Error: docker is required.\n' >&2
@@ -139,6 +191,27 @@ get_env_value() {
     if [[ -f "\$ENV_FILE" ]]; then
         grep "^\${key}=" "\$ENV_FILE" | cut -d= -f2- || true
     fi
+}
+
+set_env_value() {
+    local key=$1
+    local value=$2
+    local tmp
+    tmp=$(mktemp)
+    if [[ -f "\$ENV_FILE" ]]; then
+        awk -F= -v key="\$key" -v value="\$value" 'BEGIN{updated=0} \$1==key {print key "=" value; updated=1; next} {print} END{if(!updated) print key "=" value}' "\$ENV_FILE" > "\$tmp"
+    else
+        printf '%s=%s\n' "\$key" "\$value" > "\$tmp"
+    fi
+    mv "\$tmp" "\$ENV_FILE"
+}
+
+apply_release_ref() {
+    local ref=$1
+    set_env_value STEVE_RELEASE_REF "\$ref"
+    set_env_value STEVE_VERSION "\$ref"
+    set_env_value STEVE_IMAGE "\$(image_for_ref \"\$DEFAULT_STEVE_IMAGE_REPO\" \"\$ref\")"
+    set_env_value STEVE_OPENCODE_IMAGE "\$(image_for_ref \"\$DEFAULT_OPENCODE_IMAGE_REPO\" \"\$ref\")"
 }
 
 show_url() {
@@ -169,7 +242,7 @@ ensure_files() {
         exit 1
     fi
     if [[ ! -f "\$ENV_FILE" ]]; then
-        printf 'STEVE_PROJECT=${DEFAULT_PROJECT}\nSTEVE_WEB_PORT=${DEFAULT_WEB_PORT}\nSTEVE_OPENCODE_PORT_BASE=${DEFAULT_OPENCODE_PORT_BASE}\nSTEVE_IMAGE=${DEFAULT_STEVE_IMAGE}\nSTEVE_OPENCODE_IMAGE=${DEFAULT_OPENCODE_IMAGE}\nSTEVE_TELEGRAM_API_BASE=${DEFAULT_TELEGRAM_API_BASE}\nSTEVE_HOSTNAME=${DEFAULT_HOSTNAME}\n' > "\$ENV_FILE"
+        printf 'STEVE_RELEASE_REF=${requested_ref}\nSTEVE_VERSION=${requested_ref}\nSTEVE_PROJECT=${DEFAULT_PROJECT}\nSTEVE_WEB_PORT=${DEFAULT_WEB_PORT}\nSTEVE_OPENCODE_PORT_BASE=${DEFAULT_OPENCODE_PORT_BASE}\nSTEVE_IMAGE=${DEFAULT_STEVE_IMAGE}\nSTEVE_OPENCODE_IMAGE=${DEFAULT_OPENCODE_IMAGE}\nSTEVE_TELEGRAM_API_BASE=${DEFAULT_TELEGRAM_API_BASE}\nSTEVE_HOSTNAME=${DEFAULT_HOSTNAME}\n' > "\$ENV_FILE"
     fi
 }
 
@@ -187,8 +260,8 @@ Commands:
   ps        Show container status
   backup    Create encrypted backup
   restore   Restore encrypted backup
-  pull      Pull latest image referenced by compose
-  update    Refresh compose file and pull latest image
+  pull      Pull the currently configured images
+  update    Update Steve to the newest published release
   update skills [--force]
             Copy bundled skills into every user's workspace
   setup-url Print the one-time setup URL
@@ -345,9 +418,12 @@ case "\$cmd" in
         if [[ "\${2:-}" == "skills" ]]; then
             update_skills "\${3:-}"
         else
-            curl -fsSL "\$RAW_BASE/docker-compose.yml" -o "\$COMPOSE_FILE"
+            next_ref=$(resolve_latest_release_ref)
+            curl -fsSL "https://raw.githubusercontent.com/\$REPO_SLUG/\$next_ref/docker-compose.yml" -o "\$COMPOSE_FILE"
+            apply_release_ref "\$next_ref"
             docker_compose pull
             docker_compose up -d
+            printf 'Updated Steve to %s\n' "\$next_ref"
             show_url
             maybe_show_setup_url
         fi
@@ -435,6 +511,7 @@ verify_docker() {
 
 print_step "Checking prerequisites"
 verify_docker
+apply_release_ref
 
 print_step "Downloading compose file"
 download_compose
@@ -448,6 +525,7 @@ print_step "Starting Steve"
 docker compose --project-name "$DEFAULT_PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d
 
 printf '\nSteve is installed.\n'
+printf 'Version: %s\n' "$requested_ref"
 printf 'Run `%s up` to start again later.\n' "$APP"
 printf 'Run `%s logs` to inspect logs.\n' "$APP"
 if [[ "$(detect_hostname)" == "localhost" ]]; then

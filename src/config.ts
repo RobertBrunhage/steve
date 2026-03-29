@@ -88,6 +88,10 @@ export function getTelegramApiBase(): string {
   return config.telegramApiBase.replace(/\/$/, "");
 }
 
+export function getSteveVersion(): string {
+  return process.env.STEVE_VERSION || "dev";
+}
+
 /** Get the base URL for Steve's web UI — single source of truth */
 export function getBaseUrl(): string {
   const host = process.env.STEVE_HOSTNAME || "localhost";

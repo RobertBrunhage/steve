@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import { getHealth } from "../health.js";
-import { getTelegramApiBase, refreshRuntimeConfigFromVault } from "../config.js";
+import { getSteveVersion, getTelegramApiBase, refreshRuntimeConfigFromVault } from "../config.js";
 import { getTelegramBotToken, setTelegramBotToken } from "../secrets.js";
 import { getScheduledEntryNextRunAt, listScheduledEntries, removeUserJob, setUserJobDisabled } from "../scheduler.js";
 import { renderHome, renderJobsPage, renderSettings } from "./views.js";
@@ -19,7 +19,7 @@ export function registerSecretsRoutes(app: Hono, deps: WebRouteDeps) {
   app.get("/settings", (c) => {
     const session = deps.requireAdminPage(c);
     if (session instanceof Response) return session;
-    return c.html(renderSettings(getTelegramBotToken(deps.getVault()), session.csrfToken));
+    return c.html(renderSettings(getTelegramBotToken(deps.getVault()), getSteveVersion(), session.csrfToken));
   });
 
   app.post("/settings/telegram", async (c) => {
@@ -34,17 +34,17 @@ export function registerSecretsRoutes(app: Hono, deps: WebRouteDeps) {
     const nextToken = submittedToken || existingToken;
 
     if (!nextToken) {
-      return c.html(renderSettings(getTelegramBotToken(vault), result.session.csrfToken, "Bot token is required"), 400);
+        return c.html(renderSettings(getTelegramBotToken(vault), getSteveVersion(), result.session.csrfToken, "Bot token is required"), 400);
     }
 
     try {
       const res = await deps.telegramFetch(`${getTelegramApiBase()}/bot${String(nextToken)}/getMe`);
       const data = await res.json() as { ok: boolean };
       if (!data.ok) {
-        return c.html(renderSettings(getTelegramBotToken(vault), result.session.csrfToken, "Telegram bot token looks invalid"), 400);
+          return c.html(renderSettings(getTelegramBotToken(vault), getSteveVersion(), result.session.csrfToken, "Telegram bot token looks invalid"), 400);
       }
     } catch {
-      return c.html(renderSettings(getTelegramBotToken(vault), result.session.csrfToken, "Telegram bot token looks invalid"), 400);
+      return c.html(renderSettings(getTelegramBotToken(vault), getSteveVersion(), result.session.csrfToken, "Telegram bot token looks invalid"), 400);
     }
 
     setTelegramBotToken(vault, nextToken);
