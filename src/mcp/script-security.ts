@@ -7,6 +7,7 @@ export interface ScriptExecutionContext {
   injectedSecretValues: string[];
   injectedSecretKeys: string[];
   usedManifest: boolean;
+  redactOutput: boolean;
 }
 
 function toEnvKey(field: string): string {
@@ -119,7 +120,7 @@ export function buildScriptExecutionContext(options: {
   const { vault, userName, scriptPath, dataDir, projectRoot, fallbackSkillName } = options;
 
   if (!vault || !userName) {
-    return { env: {}, injectedSecretValues: [], injectedSecretKeys: [], usedManifest: false };
+    return { env: {}, injectedSecretValues: [], injectedSecretKeys: [], usedManifest: false, redactOutput: true };
   }
 
   const { manifest, scriptName } = loadScriptManifest(scriptPath, dataDir, projectRoot);
@@ -139,16 +140,17 @@ export function buildScriptExecutionContext(options: {
       injectSecretFields(env, injectedSecretValues, match.value, secret.fields);
     }
 
-    return {
-      env,
-      injectedSecretValues,
-      injectedSecretKeys,
-      usedManifest: true,
-    };
-  }
+      return {
+        env,
+        injectedSecretValues,
+        injectedSecretKeys,
+        usedManifest: true,
+        redactOutput: scriptManifest.redactOutput !== false,
+      };
+    }
 
   if (!fallbackSkillName) {
-    return { env, injectedSecretValues, injectedSecretKeys, usedManifest: false };
+    return { env, injectedSecretValues, injectedSecretKeys, usedManifest: false, redactOutput: true };
   }
 
   const entries = vault.getByPrefix(`${userName}/${fallbackSkillName}`);
@@ -163,6 +165,7 @@ export function buildScriptExecutionContext(options: {
     injectedSecretValues,
     injectedSecretKeys,
     usedManifest: false,
+    redactOutput: true,
   };
 }
 

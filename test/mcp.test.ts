@@ -35,6 +35,7 @@ name: Weather
 description: Test skill
 scripts:
   fetch.sh:
+    redactOutput: false
     secrets:
       - key: users/{user}/weather/app
         fields: [api_key]
@@ -78,6 +79,7 @@ scripts:
       STEVE_CRED_REFRESH_TOKEN: "refresh-secret",
     });
     assert.equal(manifestContext.usedManifest, true);
+    assert.equal(manifestContext.redactOutput, false);
     assert.deepEqual(manifestContext.injectedSecretKeys, ["users/robert/weather/app", "users/robert/weather/tokens"]);
   });
 
@@ -92,6 +94,7 @@ scripts:
 
   test("fallback: injects legacy prefix-based secrets when no manifest exists", () => {
     assert.equal(fallbackContext.usedManifest, false);
+    assert.equal(fallbackContext.redactOutput, true);
     assert.deepEqual(fallbackContext.env, {
       STEVE_CRED_CLIENT_ID: "legacy-id",
       STEVE_CRED_CLIENT_SECRET: "legacy-secret",
@@ -146,6 +149,7 @@ scripts:
       STEVE_CRED_CLIENT_ID: "mixed-client",
       STEVE_CRED_CLIENT_SECRET: "mixed-secret",
     });
+    assert.equal(ctx.redactOutput, true);
     assert.deepEqual(ctx.injectedSecretKeys, ["Robert/withings"]);
   });
 

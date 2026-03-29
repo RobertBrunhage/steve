@@ -331,6 +331,7 @@ run_image_tool() {
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v "$mount_dir":"$mount_target" \
         -e STEVE_PROJECT="${STEVE_PROJECT:-$DEFAULT_PROJECT}" \
+        -e STEVE_CLI_COMMAND="steve" \
         ${env_args[@]+"${env_args[@]}"} \
         "$image" "$@"
 }

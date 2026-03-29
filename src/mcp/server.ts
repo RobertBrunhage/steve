@@ -261,8 +261,12 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
           }
         } catch {}
 
-        const redactedOutput = redactSecrets(output, scriptContext.injectedSecretValues);
-        const redactedError = redactSecrets(stderr || "", scriptContext.injectedSecretValues);
+        const redactedOutput = scriptContext.redactOutput
+          ? redactSecrets(output, scriptContext.injectedSecretValues)
+          : { text: output, redactionCount: 0 };
+        const redactedError = scriptContext.redactOutput
+          ? redactSecrets(stderr || "", scriptContext.injectedSecretValues)
+          : { text: stderr || "", redactionCount: 0 };
         const safeOutput = redactedOutput.text;
         const safeError = redactedError.text;
         const auditEntry = {

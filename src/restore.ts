@@ -7,6 +7,7 @@ import { decrypt } from "./vault/crypto.js";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const projectName = process.env.STEVE_PROJECT || "steve";
+const cliCommand = process.env.STEVE_CLI_COMMAND || "steve";
 
 function getVolumeName(name: "data" | "vault") {
   return `${projectName}_steve-${name}`;
@@ -15,7 +16,7 @@ function getVolumeName(name: "data" | "vault") {
 async function main() {
   const file = process.argv[2];
   if (!file) {
-    p.log.error("Usage: pnpm restore <backup-file>");
+    p.log.error(`Usage: ${cliCommand} restore <backup-file>`);
     process.exit(1);
   }
 
@@ -58,7 +59,7 @@ async function main() {
 
     s.stop("Restored");
     p.log.success(`Backup from ${bundle.date}`);
-    p.outro("Run './steve up' to start Steve");
+    p.outro(`Run '${cliCommand} up' to start Steve`);
   } catch (err) {
     s.stop("Restore failed");
     p.log.error(err instanceof Error ? err.message : String(err));

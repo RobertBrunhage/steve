@@ -6,6 +6,7 @@ requires:
   bins: [curl, jq]
 scripts:
   setup.sh:
+    redactOutput: false
     secrets:
       - key: users/{user}/withings/app
         fields: [client_id, client_secret]
