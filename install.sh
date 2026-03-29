@@ -69,7 +69,17 @@ done
 
 need_cmd() {
     if ! command -v "$1" >/dev/null 2>&1; then
-        printf 'Error: required command not found: %s\n' "$1" >&2
+        case "$1" in
+            curl)
+                printf 'Error: curl is not installed. Install curl, then rerun this command.\n' >&2
+                ;;
+            docker)
+                printf 'Error: Docker is not installed. Install Docker Desktop, open it once, then rerun this command.\n' >&2
+                ;;
+            *)
+                printf 'Error: required command not found: %s\n' "$1" >&2
+                ;;
+        esac
         exit 1
     fi
 }
@@ -178,7 +188,7 @@ image_for_ref() {
 }
 
 if ! command -v docker >/dev/null 2>&1; then
-    printf 'Error: docker is required.\n' >&2
+    printf 'Error: Docker is not installed. Install Docker Desktop, open it once, then rerun this command.\n' >&2
     exit 1
 fi
 
@@ -232,7 +242,7 @@ show_url() {
         printf 'Dashboard: http://localhost:%s\n' "\$port"
     else
         printf 'Dashboard: http://%s.local:%s\n' "\$host" "\$port"
-        printf 'Fallback:  http://localhost:%s\n' "\$port"
+        printf 'Local:     http://localhost:%s\n' "\$port"
     fi
 }
 
@@ -499,12 +509,12 @@ verify_docker() {
     need_cmd docker
 
     if ! docker info >/dev/null 2>&1; then
-        printf 'Error: Docker is installed but the daemon is not running.\n' >&2
+        printf 'Error: Docker is installed but not running. Start Docker Desktop, wait until it is ready, then rerun this command.\n' >&2
         exit 1
     fi
 
     if ! docker compose version >/dev/null 2>&1; then
-        printf 'Error: docker compose is required.\n' >&2
+        printf 'Error: Docker Compose is unavailable. Update Docker Desktop or install the Docker Compose plugin, then rerun this command.\n' >&2
         exit 1
     fi
 }
@@ -532,6 +542,6 @@ if [[ "$(detect_hostname)" == "localhost" ]]; then
     printf 'Dashboard: http://localhost:%s\n' "$DEFAULT_WEB_PORT"
 else
     printf 'Dashboard: http://%s.local:%s\n' "$(detect_hostname)" "$DEFAULT_WEB_PORT"
-    printf 'Fallback:  http://localhost:%s\n' "$DEFAULT_WEB_PORT"
+    printf 'Local:     http://localhost:%s\n' "$DEFAULT_WEB_PORT"
 fi
 maybe_show_setup_url

@@ -55,7 +55,7 @@ show_url() {
         printf 'Dashboard: http://localhost:%s\n' "$WEB_PORT"
     else
         printf 'Dashboard: http://%s.local:%s\n' "$host" "$WEB_PORT"
-        printf 'Fallback:  http://localhost:%s\n' "$WEB_PORT"
+        printf 'Local:     http://localhost:%s\n' "$WEB_PORT"
     fi
 }
 

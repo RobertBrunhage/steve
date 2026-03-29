@@ -17,6 +17,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Compute image names
+        id: image
+        run: |
+          repo=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          echo "steve=${{ env.REGISTRY }}/$repo" >> "$GITHUB_OUTPUT"
+          echo "opencode=${{ env.REGISTRY }}/${repo}-opencode" >> "$GITHUB_OUTPUT"
+
       - name: Compute short sha
         id: vars
         run: echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
@@ -37,8 +44,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ github.repository }}:main
-            ${{ env.REGISTRY }}/${{ github.repository }}:sha-${{ steps.vars.outputs.short_sha }}
+            ${{ steps.image.outputs.steve }}:main
+            ${{ steps.image.outputs.steve }}:sha-${{ steps.vars.outputs.short_sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -50,7 +57,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ github.repository }}-opencode:main
-            ${{ env.REGISTRY }}/${{ github.repository }}-opencode:sha-${{ steps.vars.outputs.short_sha }}
+            ${{ steps.image.outputs.opencode }}:main
+            ${{ steps.image.outputs.opencode }}:sha-${{ steps.vars.outputs.short_sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

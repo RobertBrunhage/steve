@@ -24,6 +24,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Compute image names
+        id: image
+        run: |
+          repo=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          echo "steve=${{ env.REGISTRY }}/$repo" >> "$GITHUB_OUTPUT"
+          echo "opencode=${{ env.REGISTRY }}/${repo}-opencode" >> "$GITHUB_OUTPUT"
+
       - name: Validate version
         id: version
         run: |
@@ -58,8 +65,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ github.repository }}:${{ steps.version.outputs.version }}
-            ${{ env.REGISTRY }}/${{ github.repository }}:${{ steps.version.outputs.minor }}
+            ${{ steps.image.outputs.steve }}:${{ steps.version.outputs.version }}
+            ${{ steps.image.outputs.steve }}:${{ steps.version.outputs.minor }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -71,8 +78,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ github.repository }}-opencode:${{ steps.version.outputs.version }}
-            ${{ env.REGISTRY }}/${{ github.repository }}-opencode:${{ steps.version.outputs.minor }}
+            ${{ steps.image.outputs.opencode }}:${{ steps.version.outputs.version }}
+            ${{ steps.image.outputs.opencode }}:${{ steps.version.outputs.minor }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
