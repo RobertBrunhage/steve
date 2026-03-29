@@ -180,17 +180,17 @@ EOF
 resolve_latest_release_ref() {
     local latest
     latest=$(curl -fsSL "https://api.github.com/repos/${REPO_SLUG}/releases/latest" 2>/dev/null | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1 || true)
-    if [[ -n "\$latest" ]]; then
-        printf '%s\n' "\$latest"
+    if [[ -n "$latest" ]]; then
+        printf '%s\n' "$latest"
     else
-        printf '%s\n' "\$REF"
+        printf '%s\n' "$REF"
     fi
 }
 
 image_for_ref() {
-    local repo=\$1
-    local ref=\$2
-    printf '%s:%s\n' "\$repo" "\$ref"
+    local repo=$1
+    local ref=$2
+    printf '%s:%s\n' "$repo" "$ref"
 }
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -199,25 +199,25 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 docker_compose() {
-    docker compose --project-name "\${STEVE_PROJECT:-$DEFAULT_PROJECT}" --env-file "\$ENV_FILE" -f "\$COMPOSE_FILE" "\$@"
+    docker compose --project-name "${STEVE_PROJECT:-$DEFAULT_PROJECT}" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
 remove_user_agents() {
     local project ids=()
-    project="\${STEVE_PROJECT:-$DEFAULT_PROJECT}"
+    project="${STEVE_PROJECT:-$DEFAULT_PROJECT}"
     while IFS= read -r id; do
-        [[ -n "\$id" ]] && ids+=("\$id")
-    done < <(docker ps -aq --filter "name=\$project-opencode-" 2>/dev/null || true)
+        [[ -n "$id" ]] && ids+=("$id")
+    done < <(docker ps -aq --filter "name=$project-opencode-" 2>/dev/null || true)
 
-    if [[ \${#ids[@]} -gt 0 ]]; then
-        docker rm -f "\${ids[@]}" >/dev/null
+    if [[ ${#ids[@]} -gt 0 ]]; then
+        docker rm -f "${ids[@]}" >/dev/null
     fi
 }
 
 get_env_value() {
     local key=$1
-    if [[ -f "\$ENV_FILE" ]]; then
-        grep "^\${key}=" "\$ENV_FILE" | cut -d= -f2- || true
+    if [[ -f "$ENV_FILE" ]]; then
+        grep "^${key}=" "$ENV_FILE" | cut -d= -f2- || true
     fi
 }
 
@@ -226,51 +226,51 @@ set_env_value() {
     local value=$2
     local tmp
     tmp=$(mktemp)
-    if [[ -f "\$ENV_FILE" ]]; then
-        awk -F= -v key="\$key" -v value="\$value" 'BEGIN{updated=0} \$1==key {print key "=" value; updated=1; next} {print} END{if(!updated) print key "=" value}' "\$ENV_FILE" > "\$tmp"
+    if [[ -f "$ENV_FILE" ]]; then
+        awk -F= -v key="$key" -v value="$value" 'BEGIN{updated=0} $1==key {print key "=" value; updated=1; next} {print} END{if(!updated) print key "=" value}' "$ENV_FILE" > "$tmp"
     else
-        printf '%s=%s\n' "\$key" "\$value" > "\$tmp"
+        printf '%s=%s\n' "$key" "$value" > "$tmp"
     fi
-    mv "\$tmp" "\$ENV_FILE"
+    mv "$tmp" "$ENV_FILE"
 }
 
 apply_release_ref() {
     local ref=$1
-    set_env_value STEVE_RELEASE_REF "\$ref"
-    set_env_value STEVE_VERSION "\$ref"
-    set_env_value STEVE_IMAGE "\$(image_for_ref \"\$DEFAULT_STEVE_IMAGE_REPO\" \"\$ref\")"
-    set_env_value STEVE_OPENCODE_IMAGE "\$(image_for_ref \"\$DEFAULT_OPENCODE_IMAGE_REPO\" \"\$ref\")"
+    set_env_value STEVE_RELEASE_REF "$ref"
+    set_env_value STEVE_VERSION "$ref"
+    set_env_value STEVE_IMAGE "$(image_for_ref "$DEFAULT_STEVE_IMAGE_REPO" "$ref")"
+    set_env_value STEVE_OPENCODE_IMAGE "$(image_for_ref "$DEFAULT_OPENCODE_IMAGE_REPO" "$ref")"
 }
 
 show_url() {
     local host port
     host=localhost
     port=$DEFAULT_WEB_PORT
-    if [[ -f "\$ENV_FILE" ]]; then
-        host=$(grep '^STEVE_HOSTNAME=' "\$ENV_FILE" | cut -d= -f2- || true)
-        port=$(grep '^STEVE_WEB_PORT=' "\$ENV_FILE" | cut -d= -f2- || true)
+    if [[ -f "$ENV_FILE" ]]; then
+        host=$(grep '^STEVE_HOSTNAME=' "$ENV_FILE" | cut -d= -f2- || true)
+        port=$(grep '^STEVE_WEB_PORT=' "$ENV_FILE" | cut -d= -f2- || true)
     fi
-    if [[ -z "\$host" ]]; then
+    if [[ -z "$host" ]]; then
         host=localhost
     fi
-    if [[ -z "\$port" ]]; then
+    if [[ -z "$port" ]]; then
         port=$DEFAULT_WEB_PORT
     fi
-    if [[ "\$host" == "localhost" ]]; then
-        printf 'Dashboard: http://localhost:%s\n' "\$port"
+    if [[ "$host" == "localhost" ]]; then
+        printf 'Dashboard: http://localhost:%s\n' "$port"
     else
-        printf 'Dashboard: http://%s.local:%s\n' "\$host" "\$port"
-        printf 'Local:     http://localhost:%s\n' "\$port"
+        printf 'Dashboard: http://%s.local:%s\n' "$host" "$port"
+        printf 'Local:     http://localhost:%s\n' "$port"
     fi
 }
 
 ensure_files() {
-    if [[ ! -f "\$COMPOSE_FILE" ]]; then
-        printf 'Error: missing compose file at %s\n' "\$COMPOSE_FILE" >&2
+    if [[ ! -f "$COMPOSE_FILE" ]]; then
+        printf 'Error: missing compose file at %s\n' "$COMPOSE_FILE" >&2
         exit 1
     fi
-    if [[ ! -f "\$ENV_FILE" ]]; then
-        printf 'STEVE_RELEASE_REF=%s\nSTEVE_VERSION=%s\nSTEVE_PROJECT=%s\nSTEVE_WEB_PORT=%s\nSTEVE_OPENCODE_PORT_BASE=%s\nSTEVE_IMAGE=%s\nSTEVE_OPENCODE_IMAGE=%s\nSTEVE_TELEGRAM_API_BASE=%s\nSTEVE_HOSTNAME=%s\n' "\$REF" "\$REF" "\$DEFAULT_PROJECT" "\$DEFAULT_WEB_PORT" "\$DEFAULT_OPENCODE_PORT_BASE" "\$DEFAULT_STEVE_IMAGE" "\$DEFAULT_OPENCODE_IMAGE" "\$DEFAULT_TELEGRAM_API_BASE" "\$DEFAULT_HOSTNAME" > "\$ENV_FILE"
+    if [[ ! -f "$ENV_FILE" ]]; then
+        printf 'STEVE_RELEASE_REF=%s\nSTEVE_VERSION=%s\nSTEVE_PROJECT=%s\nSTEVE_WEB_PORT=%s\nSTEVE_OPENCODE_PORT_BASE=%s\nSTEVE_IMAGE=%s\nSTEVE_OPENCODE_IMAGE=%s\nSTEVE_TELEGRAM_API_BASE=%s\nSTEVE_HOSTNAME=%s\n' "$REF" "$REF" "$DEFAULT_PROJECT" "$DEFAULT_WEB_PORT" "$DEFAULT_OPENCODE_PORT_BASE" "$DEFAULT_STEVE_IMAGE" "$DEFAULT_OPENCODE_IMAGE" "$DEFAULT_TELEGRAM_API_BASE" "$DEFAULT_HOSTNAME" > "$ENV_FILE"
     fi
 }
 
@@ -300,15 +300,15 @@ USAGE
 
 update_skills() {
     local args=()
-    if [[ -n "\${1:-}" ]]; then
-        if [[ "\$1" == "--force" ]]; then
+    if [[ -n "${1:-}" ]]; then
+        if [[ "$1" == "--force" ]]; then
             args+=("--force")
         else
             printf 'Usage: steve update skills [--force]\n' >&2
             exit 1
         fi
     fi
-    docker_compose run --rm --no-deps steve node dist/update-skills.js "\${args[@]}"
+    docker_compose run --rm --no-deps steve node dist/update-skills.js "${args[@]}"
 }
 
 run_image_tool() {
@@ -319,24 +319,24 @@ run_image_tool() {
     local image
     local env_args=()
     image=$(get_env_value STEVE_IMAGE)
-    if [[ -z "\$image" ]]; then
+    if [[ -z "$image" ]]; then
         image=$DEFAULT_STEVE_IMAGE
     fi
-    if [[ -n "\${STEVE_BACKUP_PASSWORD:-}" ]]; then
-        env_args+=( -e "STEVE_BACKUP_PASSWORD=\$STEVE_BACKUP_PASSWORD" )
+    if [[ -n "${STEVE_BACKUP_PASSWORD:-}" ]]; then
+        env_args+=( -e "STEVE_BACKUP_PASSWORD=$STEVE_BACKUP_PASSWORD" )
     fi
     docker run --rm -i \
         --user root \
-        -w "\$workdir" \
+        -w "$workdir" \
         -v /var/run/docker.sock:/var/run/docker.sock \
-        -v "\$mount_dir":"\$mount_target" \
-        -e STEVE_PROJECT="\${STEVE_PROJECT:-$DEFAULT_PROJECT}" \
-        \${env_args[@]+"\${env_args[@]}"} \
-        "\$image" "\$@"
+        -v "$mount_dir":"$mount_target" \
+        -e STEVE_PROJECT="${STEVE_PROJECT:-$DEFAULT_PROJECT}" \
+        ${env_args[@]+"${env_args[@]}"} \
+        "$image" "$@"
 }
 
 ensure_backup_password() {
-    if [[ -n "\${STEVE_BACKUP_PASSWORD:-}" ]]; then
+    if [[ -n "${STEVE_BACKUP_PASSWORD:-}" ]]; then
         return
     fi
     if [[ ! -t 0 ]]; then
@@ -350,52 +350,52 @@ ensure_backup_password() {
 
 backup_steve() {
     ensure_backup_password
-    local target=\${1:-}
+    local target=${1:-}
     local host_dir host_file
-    if [[ -n "\$target" ]]; then
-        host_dir=$(cd "\$(dirname "\$target")" && pwd)
-        host_file=$(basename "\$target")
-        run_image_tool /app "\$host_dir" /backup node dist/backup.js "/backup/\$host_file"
+    if [[ -n "$target" ]]; then
+        host_dir=$(cd "$(dirname "$target")" && pwd)
+        host_file=$(basename "$target")
+        run_image_tool /app "$host_dir" /backup node dist/backup.js "/backup/$host_file"
     else
-        run_image_tool /app "\$PWD" /backup node dist/backup.js
+        run_image_tool /app "$PWD" /backup node dist/backup.js
     fi
 }
 
 restore_steve() {
-    if [[ -z "\${1:-}" ]]; then
+    if [[ -z "${1:-}" ]]; then
         printf 'Usage: steve restore <backup-file>\n' >&2
         exit 1
     fi
     ensure_backup_password
     remove_user_agents
     docker_compose down >/dev/null 2>&1 || true
-    local source=\$1
+    local source=$1
     local host_dir host_file
-    host_dir=$(cd "\$(dirname "\$source")" && pwd)
-    host_file=$(basename "\$source")
-    run_image_tool /app "\$host_dir" /backup node dist/restore.js "/backup/\$host_file"
+    host_dir=$(cd "$(dirname "$source")" && pwd)
+    host_file=$(basename "$source")
+    run_image_tool /app "$host_dir" /backup node dist/restore.js "/backup/$host_file"
 }
 
 show_setup_url() {
     local host port token
     host=localhost
     port=$DEFAULT_WEB_PORT
-    if [[ -f "\$ENV_FILE" ]]; then
-        host=$(grep '^STEVE_HOSTNAME=' "\$ENV_FILE" | cut -d= -f2- || true)
-        port=$(grep '^STEVE_WEB_PORT=' "\$ENV_FILE" | cut -d= -f2- || true)
+    if [[ -f "$ENV_FILE" ]]; then
+        host=$(grep '^STEVE_HOSTNAME=' "$ENV_FILE" | cut -d= -f2- || true)
+        port=$(grep '^STEVE_WEB_PORT=' "$ENV_FILE" | cut -d= -f2- || true)
     fi
-    if [[ -z "\$port" ]]; then
+    if [[ -z "$port" ]]; then
         port=$DEFAULT_WEB_PORT
     fi
     token=$(docker_compose exec -T steve sh -lc 'if [ -f /data/setup-token.json ]; then sed -n "s/.*\"token\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" /data/setup-token.json; fi' 2>/dev/null || true)
-    if [[ -z "\$token" ]]; then
+    if [[ -z "$token" ]]; then
         printf 'No pending setup token found. Steve may already be configured.\n' >&2
         exit 1
     fi
-    if [[ -z "\$host" || "\$host" == "localhost" ]]; then
-        printf 'Setup URL: http://localhost:%s/setup?token=%s\n' "\$port" "\$token"
+    if [[ -z "$host" || "$host" == "localhost" ]]; then
+        printf 'Setup URL: http://localhost:%s/setup?token=%s\n' "$port" "$token"
     else
-        printf 'Setup URL: http://%s.local:%s/setup?token=%s\n' "\$host" "\$port" "\$token"
+        printf 'Setup URL: http://%s.local:%s/setup?token=%s\n' "$host" "$port" "$token"
     fi
 }
 
@@ -403,7 +403,7 @@ maybe_show_setup_url() {
     local token=""
     for _ in $(seq 1 15); do
         token=$(docker_compose exec -T steve sh -lc 'if [ -f /data/setup-token.json ]; then sed -n "s/.*\"token\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" /data/setup-token.json; fi' 2>/dev/null || true)
-        if [[ -n "\$token" ]]; then
+        if [[ -n "$token" ]]; then
             show_setup_url
             return
         fi
@@ -413,8 +413,8 @@ maybe_show_setup_url() {
 
 ensure_files
 
-cmd=\${1:-help}
-case "\$cmd" in
+cmd=${1:-help}
+case "$cmd" in
     up)
         docker_compose up -d
         show_url
@@ -436,24 +436,24 @@ case "\$cmd" in
         docker_compose ps
         ;;
     backup)
-        backup_steve "\${2:-}"
+        backup_steve "${2:-}"
         ;;
     restore)
-        restore_steve "\${2:-}"
+        restore_steve "${2:-}"
         ;;
     pull)
         docker_compose pull
         ;;
     update)
-        if [[ "\${2:-}" == "skills" ]]; then
-            update_skills "\${3:-}"
+        if [[ "${2:-}" == "skills" ]]; then
+            update_skills "${3:-}"
         else
-            next_ref=\$(resolve_latest_release_ref)
-            curl -fsSL "https://raw.githubusercontent.com/\$REPO_SLUG/\$next_ref/docker-compose.yml" -o "\$COMPOSE_FILE"
-            apply_release_ref "\$next_ref"
+            next_ref=$(resolve_latest_release_ref)
+            curl -fsSL "https://raw.githubusercontent.com/$REPO_SLUG/$next_ref/docker-compose.yml" -o "$COMPOSE_FILE"
+            apply_release_ref "$next_ref"
             docker_compose pull
             docker_compose up -d
-            printf 'Updated Steve to %s\n' "\$next_ref"
+            printf 'Updated Steve to %s\n' "$next_ref"
             show_url
             maybe_show_setup_url
         fi
@@ -468,7 +468,7 @@ case "\$cmd" in
         usage
         ;;
     *)
-        printf 'Unknown command: %s\n\n' "\$cmd" >&2
+        printf 'Unknown command: %s\n\n' "$cmd" >&2
         usage >&2
         exit 1
         ;;
