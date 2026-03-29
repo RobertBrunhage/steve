@@ -12,6 +12,7 @@ IMPORTANT:
 - Always `list` jobs BEFORE adding to see what already exists
 - Adding a job with the same `id` replaces the existing one (no duplicates)
 - Only create what the user asked for. Do NOT create extra reminders.
+- If you receive a `REMINDER:` message, that means a scheduled reminder is firing now. Do NOT schedule anything. Send the reminder message to the user immediately.
 
 ### Creating a Recurring Reminder
 
@@ -59,3 +60,4 @@ Use the `session_status` tool to get the current time, then calculate the target
 - **Delete**: `manage_jobs action: "remove", id: "{job-id}"`
 - The scheduler picks up changes within 30 seconds
 - Reminders fire in isolated sessions (don't pollute the user's conversation)
+- Fired reminders are execution-only: treat the stored prompt as instructions for the message to send now, not as a new scheduling request.

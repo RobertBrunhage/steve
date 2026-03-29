@@ -92,7 +92,7 @@ function titleCase(value: string): string {
     .join(" ");
 }
 
-function formatDateTime(value: string | null | undefined): string {
+function formatDateTime(value: string | null | undefined, timeZone?: string | null): string {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
@@ -102,6 +102,7 @@ function formatDateTime(value: string | null | undefined): string {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    ...(timeZone ? { timeZone } : {}),
   });
 }
 
@@ -257,7 +258,7 @@ export function renderJobsPage(entries: Array<ScheduledEntry & { nextRunAt: stri
               ? "bg-emerald-950 text-emerald-300 border-emerald-800"
               : "bg-blue-950 text-blue-300 border-blue-800";
       const schedule = entry.at
-        ? `One-off at ${formatDateTime(entry.at)}`
+        ? `One-off at ${formatDateTime(entry.at, entry.timezone)}`
         : entry.cron
           ? `${escapeHtml(entry.cron)}${entry.timezone ? ` (${escapeHtml(entry.timezone)})` : ""}`
           : "-";
@@ -273,8 +274,8 @@ export function renderJobsPage(entries: Array<ScheduledEntry & { nextRunAt: stri
               </div>
               <div class="grid grid-cols-2 gap-3 text-xs text-zinc-500">
                 <div><span class="text-zinc-600">Schedule:</span> ${schedule}</div>
-                <div><span class="text-zinc-600">Next run:</span> ${escapeHtml(formatDateTime(entry.nextRunAt))}</div>
-                <div><span class="text-zinc-600">Last run:</span> ${escapeHtml(formatDateTime(entry.lastRunAt))}</div>
+                <div><span class="text-zinc-600">Next run:</span> ${escapeHtml(formatDateTime(entry.nextRunAt, entry.timezone))}</div>
+                <div><span class="text-zinc-600">Last run:</span> ${escapeHtml(formatDateTime(entry.lastRunAt, entry.timezone))}</div>
                 <div><span class="text-zinc-600">Last result:</span> ${escapeHtml(entry.lastStatus ? titleCase(entry.lastStatus) : entry.kind === "heartbeat" ? "Automatic" : "Not run yet")}</div>
               </div>
               ${entry.lastError ? `<p class="text-xs text-red-300 mt-3">${escapeHtml(entry.lastError)}</p>` : ""}

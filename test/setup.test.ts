@@ -68,6 +68,7 @@ async function run() {
   // --- Test 1: No vault, no password → returns null vault ---
 
   const { runSetup } = await import("../src/setup.js");
+  const { renderJobsPage } = await import("../src/web/views.js");
   const result = await runSetup();
 
   test("no vault: returns null vault", () => {
@@ -420,6 +421,22 @@ async function run() {
     assert.match(jobsHtml, /Needs confirmation/);
     assert.match(jobsHtml, /Resume/);
     assert.match(jobsHtml, /Pause/);
+  });
+
+  test("web jobs: cron times render in the job timezone", () => {
+    const html = renderJobsPage([{
+      kind: "job",
+      userName: "robert",
+      id: "stockholm-check",
+      name: "Stockholm Check",
+      cron: "0 20 * * *",
+      timezone: "Europe/Stockholm",
+      lastRunAt: "2026-03-29T18:00:00.000Z",
+      nextRunAt: "2026-03-30T18:00:00.000Z",
+    }], "csrf-token");
+
+    assert.match(html, /2026-03-29, 20:00/);
+    assert.match(html, /2026-03-30, 20:00/);
   });
 
   const pauseJob = await app.request("/jobs/toggle", {

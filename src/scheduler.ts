@@ -198,7 +198,10 @@ async function fireJob(userName: string, job: Job, brain: Brain) {
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      await brain.thinkIsolated(`REMINDER: ${job.prompt}`, userName);
+      await brain.thinkIsolated(
+        `REMINDER: This scheduled reminder is firing right now. Do not create, change, or ask follow-up questions about scheduling. Carry out the reminder immediately by sending the user the message they should receive now. Reminder instructions: ${job.prompt}`,
+        userName,
+      );
       updateJobRunState(userName, job.id, {
         lastRunAt: new Date(startedAt).toISOString(),
         lastStatus: "ok",

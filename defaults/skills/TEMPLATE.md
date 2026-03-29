@@ -8,7 +8,7 @@ Use this template when creating new skills. A skill is a directory inside the cu
 skill-name/
   SKILL.md              # Required: frontmatter + instructions
   scripts/              # Optional: executable scripts the agent can run
-    auth.sh             # e.g., OAuth flow helper
+    auth.sh             # e.g., OAuth flow helper (see OAUTH_TEMPLATE.md)
     fetch.sh            # e.g., API call wrapper
   templates/            # Optional: file templates for consistent data formats
     some-file.md        # Template the agent copies when creating user files
@@ -38,6 +38,7 @@ scripts:
 - **per_user** (optional): Set to `true` if each user needs their own credentials/tokens.
 - **requires.bins** (optional): CLI binaries that must exist on PATH.
 - **scripts** (optional): Per-script secret injection and output handling rules.
+- **scripts.<name>.redactOutput** (optional): Defaults to redacting injected secrets from script output. Set `redactOutput: false` only when a script must intentionally return a user-facing auth URL or similar derived value.
 
 ## SKILL.md Body
 
@@ -72,6 +73,7 @@ scripts:
       - key: users/{user}/weather/app
         fields: [api_key]
   refresh.sh:
+    redactOutput: false
     secrets:
       - key: users/{user}/weather/app
         fields: [client_id, client_secret]
@@ -85,6 +87,7 @@ scripts:
 - If `fields` is omitted, all fields in that vault entry are injected.
 - Keep manifests narrow. Only request the secrets a script actually needs.
 - Keep the machine-readable manifest in the same `SKILL.md` file as the instructions.
+- Output is redacted by default. Only disable redaction for a specific script when the output itself needs to contain a user-facing auth URL or other intentional secret-derived value.
 
 ## Templates
 
@@ -123,6 +126,10 @@ If your script produces credentials that need to be stored (e.g., OAuth tokens),
 ```
 
 Steve saves it to the vault automatically and **strips it before the AI sees the output**. The AI only receives `{"status": "ready"}`. NEVER output raw credentials in any other field.
+
+## OAuth Integrations
+
+If your skill needs browser authorization, redirects, callback polling, or token exchange, keep this file as the base template and also read `skills/OAUTH_TEMPLATE.md` before implementing the setup flow.
 
 ## Example: API Skill with Auth
 
