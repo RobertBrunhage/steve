@@ -68,6 +68,7 @@ async function run() {
   // --- Test 1: No vault, no password → returns null vault ---
 
   const { runSetup } = await import("../src/setup.js");
+  const { readUserAgentState, syncUserAgentsRuntime, upsertUserAgentRecord, writeUserAgentState } = await import("../src/agents.js");
   const { renderJobsPage } = await import("../src/web/views.js");
   const result = await runSetup();
 
@@ -180,6 +181,47 @@ async function run() {
     assert.equal(config.default_agent, "steve");
     assert.equal(config.agent.build.disable, true);
     assert.equal(config.agent.plan.disable, true);
+  });
+
+  test("agent compose file generated", () => {
+    assert.ok(existsSync(join(testDir, "agents.compose.yml")));
+    assert.equal(readFileSync(join(testDir, "agents.compose.yml"), "utf-8"), "services: {}\n");
+  });
+
+  const preservedOpencodePath = join(testDir, "users", "testuser", "opencode.json");
+  const preservedOpencode = JSON.parse(readFileSync(preservedOpencodePath, "utf-8"));
+  preservedOpencode.model = "openai/gpt-5.4";
+  preservedOpencode.provider = {
+    openai: {
+      models: {
+        "gpt-5.4": { name: "GPT-5.4" },
+      },
+    },
+  };
+  preservedOpencode.mcp.custom = { type: "remote", url: "http://custom.example/mcp", enabled: true };
+  preservedOpencode.custom_setting = true;
+  writeFileSync(preservedOpencodePath, `${JSON.stringify(preservedOpencode, null, 2)}\n`, "utf-8");
+
+  await setup2.runSetup();
+
+  test("opencode config preserves user-managed model settings", () => {
+    const config = JSON.parse(readFileSync(preservedOpencodePath, "utf-8"));
+    assert.equal(config.model, "openai/gpt-5.4");
+    assert.equal(config.provider.openai.models["gpt-5.4"].name, "GPT-5.4");
+    assert.equal(config.mcp.custom.url, "http://custom.example/mcp");
+    assert.equal(config.custom_setting, true);
+    assert.equal(config.mcp.steve.url, "http://steve:3100/mcp");
+  });
+
+  const enabledAgents = upsertUserAgentRecord(readUserAgentState(), "testuser", { enabled: true });
+  writeUserAgentState(enabledAgents);
+  syncUserAgentsRuntime(result3.users);
+
+  test("enabled agents are written to the generated compose file", () => {
+    const compose = readFileSync(join(testDir, "agents.compose.yml"), "utf-8");
+    assert.match(compose, /opencode-testuser/);
+    assert.match(compose, /image: \$\{STEVE_OPENCODE_IMAGE:-ghcr\.io\/robertbrunhage\/steve-opencode:main\}/);
+    assert.match(compose, /3457:3456/);
   });
 
   test("agent instructions pin the current user name", () => {

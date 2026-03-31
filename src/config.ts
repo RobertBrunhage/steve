@@ -9,6 +9,7 @@ import { getAllowedTelegramIds, normalizeUsers, toUserSlug, type UsersMap } from
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(__dirname, "..");
 const steveDir = process.env.STEVE_DIR || join(homedir(), ".steve");
+const stateDir = process.env.STEVE_STATE_DIR || steveDir;
 
 const vaultDir = process.env.STEVE_VAULT_DIR || "/vault";
 const mcpPort = Number(process.env.STEVE_MCP_PORT) || 3100;
@@ -19,6 +20,7 @@ const telegramApiBase = process.env.STEVE_TELEGRAM_API_BASE || "https://api.tele
 export interface SteveConfig {
   projectRoot: string;
   steveDir: string;
+  stateDir: string;
   dataDir: string;
   usersDir: string;
   sharedDir: string;
@@ -72,6 +74,7 @@ export function getRuntime(): RuntimeConfig {
 export const config: SteveConfig = Object.freeze({
   projectRoot,
   steveDir,
+  stateDir,
   dataDir: steveDir,
   usersDir: join(steveDir, "users"),
   sharedDir: join(steveDir, "shared"),

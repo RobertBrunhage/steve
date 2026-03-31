@@ -7,12 +7,14 @@ services:
     volumes:
       - steve-data:/data
       - steve-vault:/vault
+      - ${STEVE_STATE_DIR_HOST:-.}:/state
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - STEVE_HOSTNAME=${STEVE_HOSTNAME:-localhost}
       - STEVE_OPENCODE_IMAGE=${STEVE_OPENCODE_IMAGE:-ghcr.io/robertbrunhage/steve-opencode:main}
       - STEVE_VERSION=${STEVE_VERSION:-dev}
       - STEVE_PROJECT=${STEVE_PROJECT:-steve}
+      - STEVE_STATE_DIR=/state
       - STEVE_WEB_PORT=${STEVE_WEB_PORT:-7838}
       - STEVE_OPENCODE_PORT_BASE=${STEVE_OPENCODE_PORT_BASE:-3456}
       - STEVE_TELEGRAM_API_BASE=${STEVE_TELEGRAM_API_BASE:-https://api.telegram.org}

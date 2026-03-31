@@ -1,11 +1,13 @@
 import {
   existsSync,
   mkdirSync,
+  readFileSync,
   writeFileSync,
   readdirSync,
   cpSync,
 } from "node:fs";
 import { join } from "node:path";
+import { syncUserAgentsRuntime } from "./agents.js";
 import { steveDir, config, getUserSkillsDir } from "./config.js";
 import { getTelegramBotToken } from "./secrets.js";
 import { syncBundledSkillsForUser, validateProjectScriptsManifest, validateSkillDirectories } from "./skills.js";
@@ -22,7 +24,7 @@ function createDirectories() {
 
 export function setupUserWorkspace(userName: string) {
   const userDir = join(config.usersDir, toUserSlug(userName));
-  for (const sub of ["memory", "memory/daily", "memory/nutrition", "memory/training", "memory/body-measurements", "skills"]) {
+  for (const sub of ["memory", "memory/daily", "memory/nutrition", "memory/training", "memory/body-measurements", "skills", ".opencode-data"]) {
     mkdirSync(join(userDir, sub), { recursive: true });
   }
 
@@ -59,15 +61,41 @@ export function generateRuntimeConfig(users: UsersMap) {
     enabled: true,
   };
 
-  const opencodeJson = JSON.stringify({
-    $schema: "https://opencode.ai/config.json",
-    default_agent: "steve",
-    agent: {
-      build: { disable: true },
-      plan: { disable: true },
-    },
-    mcp: { steve: mcpConfig },
-  }, null, 2);
+  function isRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function readExistingOpenCodeConfig(path: string): Record<string, unknown> {
+    try {
+      if (!existsSync(path)) return {};
+      const parsed = JSON.parse(readFileSync(path, "utf-8")) as unknown;
+      return isRecord(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function mergeSteveOpenCodeDefaults(existing: Record<string, unknown>): Record<string, unknown> {
+    const agent = isRecord(existing.agent) ? { ...existing.agent } : {};
+    const build = isRecord(agent.build) ? { ...agent.build } : {};
+    const plan = isRecord(agent.plan) ? { ...agent.plan } : {};
+    const mcp = isRecord(existing.mcp) ? { ...existing.mcp } : {};
+
+    return {
+      ...existing,
+      $schema: "https://opencode.ai/config.json",
+      default_agent: "steve",
+      agent: {
+        ...agent,
+        build: { ...build, disable: true },
+        plan: { ...plan, disable: true },
+      },
+      mcp: {
+        ...mcp,
+        steve: mcpConfig,
+      },
+    };
+  }
 
   for (const userName of uniqueUserSlugs(users)) {
     const userDir = join(config.usersDir, toUserSlug(userName));
@@ -103,7 +131,9 @@ Current Steve user: ${userName}
 When calling send_message, always use this exact userName: ${userName}
 `;
 
-    writeFileSync(join(userDir, "opencode.json"), opencodeJson, "utf-8");
+    const opencodePath = join(userDir, "opencode.json");
+    const nextOpenCodeConfig = mergeSteveOpenCodeDefaults(readExistingOpenCodeConfig(opencodePath));
+    writeFileSync(opencodePath, `${JSON.stringify(nextOpenCodeConfig, null, 2)}\n`, "utf-8");
 
     const agentDir = join(userDir, ".opencode", "agents");
     mkdirSync(agentDir, { recursive: true });
@@ -178,6 +208,7 @@ export async function runSetup(): Promise<SetupResult> {
 
   // Write user manifest for launch script
   writeUserManifest(steveDir, users);
+  syncUserAgentsRuntime(users);
 
   return { vault, botToken, users };
 }

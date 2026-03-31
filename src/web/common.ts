@@ -8,20 +8,6 @@ export interface SetupTokenRecord {
   createdAt: number;
 }
 
-export function getOpenCodePorts(): Record<string, number> {
-  const portsPath = join(config.dataDir, "opencode-ports.json");
-  try {
-    if (existsSync(portsPath)) {
-      return JSON.parse(readFileSync(portsPath, "utf-8"));
-    }
-  } catch {}
-  return {};
-}
-
-export function saveOpenCodePorts(ports: Record<string, number>) {
-  writeFileSync(join(config.dataDir, "opencode-ports.json"), JSON.stringify(ports, null, 2), "utf-8");
-}
-
 export function parseFields(body: Record<string, string | File>): Record<string, string> {
   const result: Record<string, string> = {};
   for (let i = 0; i < 100; i++) {

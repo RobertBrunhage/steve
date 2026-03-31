@@ -1,3 +1,4 @@
+import { readUserAgentState } from "./agents.js";
 import { getRuntime } from "./config.js";
 import type { Vault } from "./vault/index.js";
 import { listVisibleVaultKeys } from "./vault/visible.js";
@@ -7,7 +8,7 @@ export interface HealthStatus {
   healthy: boolean;
   uptime: number;
   components: {
-    opencode: Record<string, { status: "ok" | "error"; message?: string }>;
+    opencode: Record<string, { status: "ok" | "error" | "paused"; message?: string }>;
     telegram: { status: "ok" | "error" | "not_configured"; message?: string };
     vault: { status: "ok" | "not_configured"; secrets: number };
     scheduler: { status: "ok"; reminders: number };
@@ -34,11 +35,16 @@ async function checkOpenCode(userName: string): Promise<{ status: "ok" | "error"
 }
 
 export async function getHealth(): Promise<HealthStatus> {
-  const opencode: Record<string, { status: "ok" | "error"; message?: string }> = {};
+  const opencode: Record<string, { status: "ok" | "error" | "paused"; message?: string }> = {};
   try {
     const rt = getRuntime();
+    const agentState = readUserAgentState();
     const userNames = uniqueUserSlugs(rt.users);
     await Promise.all(userNames.map(async (name) => {
+      if (!agentState[name]?.enabled) {
+        opencode[name] = { status: "paused" };
+        return;
+      }
       opencode[name] = await checkOpenCode(name);
     }));
   } catch {
@@ -58,7 +64,7 @@ export async function getHealth(): Promise<HealthStatus> {
 
   const scheduler: HealthStatus["components"]["scheduler"] = { status: "ok", reminders: reminderCount };
 
-  const allOcOk = Object.values(opencode).every((o) => o.status === "ok");
+  const allOcOk = Object.values(opencode).every((o) => o.status === "ok" || o.status === "paused");
   const healthy = allOcOk && telegram.status === "ok";
 
   return {

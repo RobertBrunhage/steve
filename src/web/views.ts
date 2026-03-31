@@ -157,7 +157,7 @@ export function renderHome(health: HealthStatus, csrfToken: string): string {
         </div>
         <div class="flex items-center gap-2">
           ${dot(oc.status)}
-          <span class="text-xs ${oc.status === "ok" ? "text-zinc-400" : "text-zinc-500"}">${oc.status === "ok" ? "Agent running" : "Agent stopped"}</span>
+          <span class="text-xs ${oc.status === "ok" ? "text-zinc-400" : "text-zinc-500"}">${oc.status === "ok" ? "Agent running" : oc.status === "paused" ? "Agent paused" : "Agent unavailable"}</span>
         </div>
       </a>`).join("")}
 
@@ -315,6 +315,7 @@ export function renderJobsPage(entries: Array<ScheduledEntry & { nextRunAt: stri
 type UserPageTab = "overview" | "integrations" | "agent";
 
 interface RenderUserOptions {
+  agentEnabled?: boolean;
   telegramChatId?: string | null;
   userSecrets?: UserAppSecretSummary[];
   recentActivity?: ActivityEntry[];
@@ -338,12 +339,15 @@ function renderUserTabs(name: string, activeTab: UserPageTab): string {
     </div>`;
 }
 
-function renderUserHeader(name: string, ocStatus: string, csrfToken: string): string {
+function renderUserHeader(name: string, ocStatus: string, agentEnabled: boolean, csrfToken: string): string {
   const isRunning = ocStatus === "running";
+  const isEnabled = agentEnabled;
   const dot = isRunning
     ? '<span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>'
+    : isEnabled
+      ? '<span class="inline-block w-2 h-2 rounded-full bg-amber-400"></span>'
     : '<span class="inline-block w-2 h-2 rounded-full bg-zinc-600"></span>';
-  const statusLabel = isRunning ? "Running" : "Stopped";
+  const statusLabel = isRunning ? "Running" : isEnabled ? "Unavailable" : "Paused";
   return `
     <a href="/" class="text-sm text-zinc-500 hover:text-zinc-300 transition-colors">&larr; Dashboard</a>
 
@@ -351,17 +355,17 @@ function renderUserHeader(name: string, ocStatus: string, csrfToken: string): st
       <div class="flex items-center gap-3">
         ${dot}
         <h1 class="text-xl font-semibold text-white capitalize">${escapeHtml(name)}</h1>
-        <span class="text-xs ${isRunning ? "text-emerald-400" : "text-zinc-500"}">${statusLabel}</span>
+        <span class="text-xs ${isRunning ? "text-emerald-400" : isEnabled ? "text-amber-300" : "text-zinc-500"}">${statusLabel}</span>
       </div>
       <div class="flex gap-2">
-        ${ocStatus === "running" ? `
+        ${isEnabled ? `
           <form method="POST" action="/users/${encodeURIComponent(name)}/stop" class="inline">
             ${hiddenCsrf(csrfToken)}
             <button type="submit" class="px-3 py-1.5 text-xs rounded-md bg-zinc-800 text-zinc-300 hover:bg-red-900 hover:text-red-300 transition-colors">Stop</button>
           </form>
-          <form method="POST" action="/users/${encodeURIComponent(name)}/restart" class="inline">
+          <form method="POST" action="/users/${encodeURIComponent(name)}/${isRunning ? "restart" : "start"}" class="inline">
             ${hiddenCsrf(csrfToken)}
-            <button type="submit" class="px-3 py-1.5 text-xs rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors">Restart</button>
+            <button type="submit" class="px-3 py-1.5 text-xs rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors">${isRunning ? "Restart" : "Start"}</button>
           </form>
         ` : `
           <form method="POST" action="/users/${encodeURIComponent(name)}/start" class="inline">
@@ -373,10 +377,10 @@ function renderUserHeader(name: string, ocStatus: string, csrfToken: string): st
     </div>`;
 }
 
-function renderUserFrame(name: string, ocStatus: string, csrfToken: string, activeTab: UserPageTab, body: string): string {
+function renderUserFrame(name: string, ocStatus: string, csrfToken: string, activeTab: UserPageTab, body: string, options?: RenderUserOptions): string {
   return layout(`${name}`, `
     ${nav(csrfToken)}
-    ${renderUserHeader(name, ocStatus, csrfToken)}
+    ${renderUserHeader(name, ocStatus, options?.agentEnabled ?? false, csrfToken)}
     ${renderUserTabs(name, activeTab)}
     ${body}
   `);
@@ -431,7 +435,7 @@ export function renderUserOverview(name: string, ocStatus: string, csrfToken: st
         ${renderActivityItems(options?.recentActivity || [])}
       </div>
     </div>
-  `);
+  `, options);
 }
 
 export function renderUserIntegrationsPage(name: string, ocStatus: string, csrfToken: string, options?: RenderUserOptions): string {
@@ -470,7 +474,7 @@ export function renderUserIntegrationsPage(name: string, ocStatus: string, csrfT
         ${secretsHtml}
       </div>
     </div>
-  `);
+  `, options);
 }
 
 export function renderUserAgentPage(name: string, ocStatus: string, ocUrl: string, csrfToken: string, options?: RenderUserOptions): string {
@@ -578,7 +582,7 @@ export function renderUserAgentPage(name: string, ocStatus: string, ocUrl: strin
       loadLogs();
       setInterval(loadLogs, 5000);
     </script>
-  `);
+  `, options);
 }
 
 export function renderUserSecretNewForm(userName: string, error: string | undefined, csrfToken: string, integration = ""): string {

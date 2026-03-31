@@ -8,6 +8,7 @@ DEFAULT_REF=${STEVE_REF:-}
 INSTALL_ROOT=${STEVE_INSTALL_DIR:-$HOME/.steve}
 BIN_DIR="$INSTALL_ROOT/bin"
 COMPOSE_FILE="$INSTALL_ROOT/docker-compose.yml"
+AGENTS_COMPOSE_FILE="$INSTALL_ROOT/agents.compose.yml"
 ENV_FILE="$INSTALL_ROOT/.env"
 WRAPPER_PATH="$BIN_DIR/steve"
 DEFAULT_HOSTNAME=localhost
@@ -20,6 +21,7 @@ DEFAULT_TELEGRAM_API_BASE=https://api.telegram.org
 
 requested_ref="$DEFAULT_REF"
 no_modify_path=false
+refresh_wrapper_only=false
 RAW_BASE=""
 DEFAULT_STEVE_IMAGE=""
 DEFAULT_OPENCODE_IMAGE=""
@@ -33,7 +35,9 @@ Usage: install.sh [options]
 Options:
     -h, --help           Display this help message
     -r, --ref <ref>      Install from a git ref (branch, tag, or commit)
-        --no-modify-path Don't modify shell config files
+    --no-modify-path Don't modify shell config files
+    --refresh-wrapper-only
+                         Internal: rewrite the installed wrapper only
 
 Examples:
     curl -fsSL https://raw.githubusercontent.com/robertbrunhage/steve/main/install.sh | bash
@@ -58,6 +62,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-modify-path)
             no_modify_path=true
+            shift
+            ;;
+        --refresh-wrapper-only)
+            refresh_wrapper_only=true
             shift
             ;;
         *)
@@ -146,6 +154,7 @@ STEVE_WEB_PORT=$DEFAULT_WEB_PORT
 STEVE_OPENCODE_PORT_BASE=$DEFAULT_OPENCODE_PORT_BASE
 STEVE_IMAGE=$DEFAULT_STEVE_IMAGE
 STEVE_OPENCODE_IMAGE=$DEFAULT_OPENCODE_IMAGE
+STEVE_STATE_DIR_HOST=$INSTALL_ROOT
 STEVE_TELEGRAM_API_BASE=$DEFAULT_TELEGRAM_API_BASE
 STEVE_HOSTNAME=$host
 EOF
@@ -161,6 +170,7 @@ set -euo pipefail
 
 INSTALL_ROOT="${INSTALL_ROOT}"
 COMPOSE_FILE="\$INSTALL_ROOT/docker-compose.yml"
+AGENTS_COMPOSE_FILE="\$INSTALL_ROOT/agents.compose.yml"
 ENV_FILE="\$INSTALL_ROOT/.env"
 REPO_SLUG="${REPO_SLUG}"
 REF="${requested_ref}"
@@ -199,7 +209,15 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 docker_compose() {
-    docker compose --project-name "${STEVE_PROJECT:-$DEFAULT_PROJECT}" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+    ensure_agents_compose_file
+    docker compose --project-name "${STEVE_PROJECT:-$DEFAULT_PROJECT}" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$AGENTS_COMPOSE_FILE" "$@"
+}
+
+ensure_agents_compose_file() {
+    mkdir -p "$INSTALL_ROOT"
+    if [[ ! -f "$AGENTS_COMPOSE_FILE" ]]; then
+        printf 'services: {}\n' > "$AGENTS_COMPOSE_FILE"
+    fi
 }
 
 remove_user_agents() {
@@ -270,8 +288,21 @@ ensure_files() {
         exit 1
     fi
     if [[ ! -f "$ENV_FILE" ]]; then
-        printf 'STEVE_RELEASE_REF=%s\nSTEVE_VERSION=%s\nSTEVE_PROJECT=%s\nSTEVE_WEB_PORT=%s\nSTEVE_OPENCODE_PORT_BASE=%s\nSTEVE_IMAGE=%s\nSTEVE_OPENCODE_IMAGE=%s\nSTEVE_TELEGRAM_API_BASE=%s\nSTEVE_HOSTNAME=%s\n' "$REF" "$REF" "$DEFAULT_PROJECT" "$DEFAULT_WEB_PORT" "$DEFAULT_OPENCODE_PORT_BASE" "$DEFAULT_STEVE_IMAGE" "$DEFAULT_OPENCODE_IMAGE" "$DEFAULT_TELEGRAM_API_BASE" "$DEFAULT_HOSTNAME" > "$ENV_FILE"
+        printf 'STEVE_RELEASE_REF=%s\nSTEVE_VERSION=%s\nSTEVE_PROJECT=%s\nSTEVE_WEB_PORT=%s\nSTEVE_OPENCODE_PORT_BASE=%s\nSTEVE_IMAGE=%s\nSTEVE_OPENCODE_IMAGE=%s\nSTEVE_STATE_DIR_HOST=%s\nSTEVE_TELEGRAM_API_BASE=%s\nSTEVE_HOSTNAME=%s\n' "$REF" "$REF" "$DEFAULT_PROJECT" "$DEFAULT_WEB_PORT" "$DEFAULT_OPENCODE_PORT_BASE" "$DEFAULT_STEVE_IMAGE" "$DEFAULT_OPENCODE_IMAGE" "$INSTALL_ROOT" "$DEFAULT_TELEGRAM_API_BASE" "$DEFAULT_HOSTNAME" > "$ENV_FILE"
     fi
+    if [[ -z "$(get_env_value STEVE_STATE_DIR_HOST)" ]]; then
+        set_env_value STEVE_STATE_DIR_HOST "$INSTALL_ROOT"
+    fi
+    ensure_agents_compose_file
+}
+
+refresh_wrapper() {
+    local ref=$1
+    local tmp
+    tmp=$(mktemp)
+    curl -fsSL "https://raw.githubusercontent.com/$REPO_SLUG/$ref/install.sh" -o "$tmp"
+    STEVE_INSTALL_DIR="$INSTALL_ROOT" bash "$tmp" --ref "$ref" --refresh-wrapper-only --no-modify-path
+    rm -f "$tmp"
 }
 
 usage() {
@@ -325,6 +356,12 @@ run_image_tool() {
     if [[ -n "${STEVE_BACKUP_PASSWORD:-}" ]]; then
         env_args+=( -e "STEVE_BACKUP_PASSWORD=$STEVE_BACKUP_PASSWORD" )
     fi
+    if [[ -n "${STEVE_BACKUP_OUTPUT_PATH:-}" ]]; then
+        env_args+=( -e "STEVE_BACKUP_OUTPUT_PATH=$STEVE_BACKUP_OUTPUT_PATH" )
+    fi
+    if [[ -n "${STEVE_BACKUP_OUTPUT_DIR:-}" ]]; then
+        env_args+=( -e "STEVE_BACKUP_OUTPUT_DIR=$STEVE_BACKUP_OUTPUT_DIR" )
+    fi
     docker run --rm -i \
         --user root \
         -w "$workdir" \
@@ -356,9 +393,9 @@ backup_steve() {
     if [[ -n "$target" ]]; then
         host_dir=$(cd "$(dirname "$target")" && pwd)
         host_file=$(basename "$target")
-        run_image_tool /app "$host_dir" /backup node dist/backup.js "/backup/$host_file"
+        STEVE_BACKUP_OUTPUT_PATH="$host_dir/$host_file" run_image_tool /app "$host_dir" /backup node dist/backup.js "/backup/$host_file"
     else
-        run_image_tool /app "$PWD" /backup node dist/backup.js
+        STEVE_BACKUP_OUTPUT_DIR="$PWD" run_image_tool /app "$PWD" /backup node dist/backup.js
     fi
 }
 
@@ -422,7 +459,6 @@ case "$cmd" in
         maybe_show_setup_url
         ;;
     down)
-        remove_user_agents
         docker_compose down
         ;;
     restart)
@@ -454,6 +490,9 @@ case "$cmd" in
             apply_release_ref "$next_ref"
             docker_compose pull
             docker_compose up -d
+            if ! refresh_wrapper "$next_ref"; then
+                printf 'Warning: updated runtime to %s, but could not refresh the local steve command wrapper. Rerun the installer if wrapper behavior seems stale.\n' "$next_ref" >&2
+            fi
             printf 'Updated Steve to %s\n' "$next_ref"
             show_url
             maybe_show_setup_url
@@ -526,6 +565,11 @@ maybe_update_path() {
     esac
 }
 
+refresh_wrapper_install_only() {
+    apply_release_ref
+    write_wrapper
+}
+
 maybe_show_setup_url_install() {
     local host port token=""
     host=$(detect_hostname)
@@ -562,6 +606,11 @@ verify_docker() {
 }
 
 print_step "Checking prerequisites"
+if [[ "$refresh_wrapper_only" == true ]]; then
+    refresh_wrapper_install_only
+    exit 0
+fi
+
 verify_docker
 apply_release_ref
 

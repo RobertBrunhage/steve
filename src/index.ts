@@ -1,4 +1,5 @@
 import * as p from "@clack/prompts";
+import { listEnabledUserAgents, readUserAgentState } from "./agents.js";
 import { config, setRuntimeConfig, getBaseUrl } from "./config.js";
 import { runSetup } from "./setup.js";
 import { createBot } from "./bot/index.js";
@@ -9,6 +10,7 @@ import { startScheduler } from "./scheduler.js";
 import { createMcpServerFactory } from "./mcp/server.js";
 import { startMcpHttpServer } from "./mcp/transport.js";
 import { startWebServer } from "./web/index.js";
+import { getComposeProject, reconcileUserAgents } from "./web/docker.js";
 import { setTelegramConnected, setVault } from "./health.js";
 import { TelegramChannel } from "./channels/telegram.js";
 import { registerChannel } from "./channels/index.js";
@@ -156,6 +158,15 @@ async function main() {
   vault = await waitForVault(vault);
   ({ botToken, users } = await waitForConfiguration(vault, botToken, users));
   applyRuntimeConfig(botToken, users);
+
+  const enabledAgents = listEnabledUserAgents(readUserAgentState());
+  if (enabledAgents.length > 0) {
+    try {
+      reconcileUserAgents(getComposeProject());
+    } catch (error) {
+      p.log.warn(`Could not reconcile user agents: ${error instanceof Error ? error.message : error}`);
+    }
+  }
 
   return startServices(vault, botToken, users);
 }

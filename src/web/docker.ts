@@ -1,18 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-
-export interface StartUserAgentOptions {
-  composeProject: string;
-  dataDir: string;
-  image: string;
-  name: string;
-  port: number;
-}
+import { getUserAgentComposePath } from "../agents.js";
 
 function getUserContainerName(composeProject: string, name: string): string {
   return `${composeProject}-opencode-${name}`;
+}
+
+function getUserServiceName(name: string): string {
+  return `opencode-${name}`;
 }
 
 function runDocker(args: string[], opts: { timeout?: number; input?: Buffer; encoding?: BufferEncoding } = {}) {
@@ -32,74 +26,20 @@ function ensureDockerSuccess(result: ReturnType<typeof runDocker>, fallback = "D
   }
 }
 
+function runUserAgentCompose(composeProject: string, args: string[]) {
+  return runDocker(["compose", "-p", composeProject, "-f", getUserAgentComposePath(), ...args], {
+    timeout: 30000,
+    encoding: "utf-8",
+  });
+}
+
 export function getComposeProject(): string {
   return process.env.STEVE_PROJECT || "steve";
 }
 
-export function startExistingUserAgent(composeProject: string, name: string): boolean {
-  const result = runDocker(["start", getUserContainerName(composeProject, name)], { timeout: 10000, encoding: "utf-8" });
-  if (result.status === 0) return true;
-  return false;
-}
-
-export function startUserAgent(opts: StartUserAgentOptions): void {
-  const userDir = join(opts.dataDir, "users", opts.name);
-  for (const sub of ["memory", "memory/daily", "memory/nutrition", "memory/training", "memory/body-measurements", "skills", ".opencode-data"]) {
-    mkdirSync(join(userDir, sub), { recursive: true });
-  }
-
-  const composeContent = [
-    "services:",
-    `  opencode-${opts.name}:`,
-    `    image: ${opts.image}`,
-    `    container_name: ${getUserContainerName(opts.composeProject, opts.name)}`,
-    "    restart: unless-stopped",
-    '    command: ["serve", "--port", "3456", "--hostname", "0.0.0.0"]',
-    "    working_dir: /data",
-    "    ports:",
-    `      - "${opts.port}:3456"`,
-    "    extra_hosts:",
-    '      - "host.docker.internal:host-gateway"',
-    "    volumes:",
-    "      - type: volume",
-    `        source: ${opts.composeProject}_steve-data`,
-    "        target: /data",
-    "        volume:",
-    `          subpath: users/${opts.name}`,
-    "      - type: volume",
-    `        source: ${opts.composeProject}_steve-data`,
-    "        target: /data/shared",
-    "        volume:",
-    "          subpath: shared",
-    "      - type: volume",
-    `        source: ${opts.composeProject}_steve-data`,
-    "        target: /root/.local/share/opencode",
-    "        volume:",
-    `          subpath: users/${opts.name}/.opencode-data`,
-    `    networks: [${opts.composeProject}_steve-net]`,
-    "",
-    "volumes:",
-    `  ${opts.composeProject}_steve-data:`,
-    "    external: true",
-    "",
-    "networks:",
-    `  ${opts.composeProject}_steve-net:`,
-    "    external: true",
-  ].join("\n");
-
-  const tempDir = mkdtempSync(join(tmpdir(), "steve-opencode-"));
-  const composeFile = join(tempDir, "compose.yml");
-
-  try {
-    writeFileSync(composeFile, composeContent, "utf-8");
-    const result = runDocker(["compose", "-p", opts.composeProject, "-f", composeFile, "up", "-d"], {
-      timeout: 30000,
-      encoding: "utf-8",
-    });
-    ensureDockerSuccess(result, "Failed to start user agent");
-  } finally {
-    rmSync(tempDir, { recursive: true, force: true });
-  }
+export function startUserAgent(composeProject: string, name: string): void {
+  const result = runUserAgentCompose(composeProject, ["up", "-d", getUserServiceName(name)]);
+  ensureDockerSuccess(result, "Failed to start user agent");
 }
 
 export function stopUserAgent(composeProject: string, name: string): void {
@@ -107,9 +47,19 @@ export function stopUserAgent(composeProject: string, name: string): void {
   ensureDockerSuccess(result, "Failed to stop user agent");
 }
 
+export function removeUserAgent(composeProject: string, name: string): void {
+  const result = runDocker(["rm", "-f", getUserContainerName(composeProject, name)], { timeout: 15000, encoding: "utf-8" });
+  ensureDockerSuccess(result, "Failed to remove user agent");
+}
+
 export function restartUserAgent(composeProject: string, name: string): void {
-  const result = runDocker(["restart", getUserContainerName(composeProject, name)], { timeout: 15000, encoding: "utf-8" });
+  const result = runUserAgentCompose(composeProject, ["restart", getUserServiceName(name)]);
   ensureDockerSuccess(result, "Failed to restart user agent");
+}
+
+export function reconcileUserAgents(composeProject: string): void {
+  const result = runUserAgentCompose(composeProject, ["up", "-d"]);
+  ensureDockerSuccess(result, "Failed to reconcile user agents");
 }
 
 export function getUserAgentLogs(composeProject: string, name: string): string {

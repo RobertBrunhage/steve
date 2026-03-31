@@ -1,19 +1,18 @@
 import type { Hono } from "hono";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createOpencodeClient } from "@opencode-ai/sdk/client";
+import { readUserAgentState, syncUserAgentsRuntime, upsertUserAgentRecord, writeUserAgentState, writeUserAgentsCompose } from "../agents.js";
 import { readUserActivity } from "../activity.js";
 import { config, getBaseUrl, getUserDir, refreshRuntimeConfigFromVault } from "../config.js";
 import { deleteUserAppSecret, getUserAppSecret, listUserAppSecrets, setUserAppSecret } from "../secrets.js";
 import { generateRuntimeConfig, setupUserWorkspace } from "../setup.js";
 import { addOrUpdateTelegramUser, ensureUser, getTelegramChatId, normalizeUsers, writeUserManifest } from "../users.js";
 import { mergeFieldsWithExistingValue, parseFields, valueToFields } from "./common.js";
-import { getOpenCodePorts, saveOpenCodePorts } from "./common.js";
 import {
   getUserAgentLogs,
   restartUserAgent,
-  startExistingUserAgent,
   startUserAgent,
-  stopUserAgent,
+  removeUserAgent,
   getComposeProject,
 } from "./docker.js";
 import { renderUserAgentPage, renderUserIntegrationsPage, renderUserOverview, renderUserSecretEditForm, renderUserSecretNewForm } from "./views.js";
@@ -91,17 +90,18 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     const savedConfig = readUserOpenCodeConfig(name);
 
     let ocStatus = "unknown";
+    const agentState = readUserAgentState()[name];
+    const agentEnabled = agentState?.enabled ?? false;
     try {
       const res = await fetch(`http://opencode-${name}:3456`, { signal: AbortSignal.timeout(2000) });
       ocStatus = res.ok ? "running" : "stopped";
     } catch {
-      ocStatus = "stopped";
+      ocStatus = agentEnabled ? "stopped" : "paused";
     }
 
-    const ports = getOpenCodePorts();
-    const ocPort = ports[name] || 0;
+    const ocPort = agentState?.port || 0;
     const baseUrl = new URL(getBaseUrl());
-    const ocUrl = ocPort ? `http://${baseUrl.hostname}:${ocPort}` : "";
+    const ocUrl = ocPort && agentEnabled ? `http://${baseUrl.hostname}:${ocPort}` : "";
     const users = normalizeUsers(deps.getVault()?.get("steve/users")).users;
     let currentModel: string | null = inferConfiguredModel(savedConfig);
     let modelProviders: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> = [];
@@ -118,6 +118,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
 
     return {
       ocStatus,
+      agentEnabled,
       ocUrl,
       currentModel,
       modelProviders,
@@ -146,6 +147,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     refreshRuntimeConfigFromVault(vault);
     setupUserWorkspace(validatedName.value);
     generateRuntimeConfig(updatedUsers);
+    syncUserAgentsRuntime(updatedUsers);
     writeUserManifest(config.dataDir, updatedUsers);
     return c.redirect(`/users/${validatedName.value}`);
   });
@@ -282,21 +284,11 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     const name = validatedName.value;
 
     try {
-      if (!startExistingUserAgent(deps.composeProject, name)) {
-        const ports = getOpenCodePorts();
-        const nextPort = Math.max(config.opencodePortBase, ...Object.values(ports)) + 1;
-        const portNumber = ports[name] || nextPort;
-        ports[name] = portNumber;
-        saveOpenCodePorts(ports);
-
-        startUserAgent({
-          composeProject: deps.composeProject,
-          dataDir: config.dataDir,
-          image: process.env.STEVE_OPENCODE_IMAGE || "ghcr.io/robertbrunhage/steve-opencode:latest",
-          name,
-          port: portNumber,
-        });
-      }
+      setupUserWorkspace(name);
+      const nextState = upsertUserAgentRecord(readUserAgentState(), name, { enabled: true });
+      writeUserAgentState(nextState);
+      writeUserAgentsCompose(nextState);
+      startUserAgent(deps.composeProject, name);
     } catch (err) {
       console.error("Failed to start agent:", err instanceof Error ? err.message : err);
     }
@@ -311,7 +303,10 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     const validatedName = validateUserSlug(c.req.param("name"));
     if (!validatedName.ok) return c.redirect("/");
     try {
-      stopUserAgent(deps.composeProject, validatedName.value);
+      const nextState = upsertUserAgentRecord(readUserAgentState(), validatedName.value, { enabled: false });
+      writeUserAgentState(nextState);
+      writeUserAgentsCompose(nextState);
+      removeUserAgent(deps.composeProject, validatedName.value);
     } catch {}
     return c.redirect(`/users/${validatedName.value}`);
   });
@@ -412,8 +407,12 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
 
     writeFileSync(getUserOpenCodeConfigPath(validatedName.value), `${JSON.stringify(nextConfig, null, 2)}\n`, "utf-8");
     const state = await getUserPageState(validatedName.value);
-    if (state?.ocStatus === "running") {
-      restartUserAgent(getComposeProject(), validatedName.value);
+    if (state?.agentEnabled) {
+      try {
+        restartUserAgent(getComposeProject(), validatedName.value);
+      } catch {
+        startUserAgent(getComposeProject(), validatedName.value);
+      }
     }
     return c.redirect(`/users/${validatedName.value}/agent`);
   });

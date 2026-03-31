@@ -5,6 +5,7 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
 ENV_DIR="$REPO_ROOT/.steve-dev"
 ENV_FILE="$ENV_DIR/.env"
+AGENTS_COMPOSE_FILE="$ENV_DIR/agents.compose.yml"
 COMPOSE_FILE="$REPO_ROOT/docker-compose.yml"
 PROJECT_NAME=${STEVE_PROJECT:-steve-dev}
 WEB_PORT=${STEVE_WEB_PORT:-7839}
@@ -40,12 +41,21 @@ STEVE_TELEGRAM_API_BASE=$TELEGRAM_API_BASE
 STEVE_HOSTNAME=$(detect_hostname)
 STEVE_IMAGE=$LOCAL_STEVE_IMAGE
 STEVE_OPENCODE_IMAGE=$LOCAL_OPENCODE_IMAGE
+STEVE_STATE_DIR_HOST=$ENV_DIR
 EOF
+}
+
+ensure_agents_compose_file() {
+    mkdir -p "$ENV_DIR"
+    if [[ ! -f "$AGENTS_COMPOSE_FILE" ]]; then
+        printf 'services: {}\n' > "$AGENTS_COMPOSE_FILE"
+    fi
 }
 
 docker_compose() {
     ensure_env
-    docker compose --project-name "$PROJECT_NAME" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+    ensure_agents_compose_file
+    docker compose --project-name "$PROJECT_NAME" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$AGENTS_COMPOSE_FILE" "$@"
 }
 
 remove_user_agents() {
@@ -110,6 +120,12 @@ run_image_tool() {
     if [[ -n "${STEVE_BACKUP_PASSWORD:-}" ]]; then
         env_args+=( -e "STEVE_BACKUP_PASSWORD=$STEVE_BACKUP_PASSWORD" )
     fi
+    if [[ -n "${STEVE_BACKUP_OUTPUT_PATH:-}" ]]; then
+        env_args+=( -e "STEVE_BACKUP_OUTPUT_PATH=$STEVE_BACKUP_OUTPUT_PATH" )
+    fi
+    if [[ -n "${STEVE_BACKUP_OUTPUT_DIR:-}" ]]; then
+        env_args+=( -e "STEVE_BACKUP_OUTPUT_DIR=$STEVE_BACKUP_OUTPUT_DIR" )
+    fi
     docker run --rm -i \
         --user root \
         -w "$workdir" \
@@ -142,9 +158,9 @@ backup_steve() {
     if [[ -n "$target" ]]; then
         host_dir=$(cd "$(dirname "$target")" && pwd)
         host_file=$(basename "$target")
-        run_image_tool /app "$host_dir" /backup node dist/backup.js "/backup/$host_file"
+        STEVE_BACKUP_OUTPUT_PATH="$host_dir/$host_file" run_image_tool /app "$host_dir" /backup node dist/backup.js "/backup/$host_file"
     else
-        run_image_tool /app "$PWD" /backup node dist/backup.js
+        STEVE_BACKUP_OUTPUT_DIR="$PWD" run_image_tool /app "$PWD" /backup node dist/backup.js
     fi
 }
 
@@ -223,12 +239,11 @@ case "$cmd" in
     up)
         ensure_local_images
         print_step "Starting Steve"
-        docker_compose up -d steve
+        docker_compose up -d
         show_url
         maybe_show_setup_url
         ;;
     down)
-        remove_user_agents
         docker_compose down
         ;;
     restart)
@@ -237,7 +252,7 @@ case "$cmd" in
         maybe_show_setup_url
         ;;
     logs)
-        docker_compose logs -f steve
+        docker_compose logs -f
         ;;
     ps)
         docker_compose ps

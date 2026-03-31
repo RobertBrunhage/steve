@@ -8,6 +8,16 @@ import { encrypt } from "./vault/crypto.js";
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const projectName = process.env.STEVE_PROJECT || "steve";
 
+function getBackupDisplayPath(outputName: string): string {
+  if (process.env.STEVE_BACKUP_OUTPUT_PATH) {
+    return process.env.STEVE_BACKUP_OUTPUT_PATH;
+  }
+  if (process.env.STEVE_BACKUP_OUTPUT_DIR) {
+    return resolve(process.env.STEVE_BACKUP_OUTPUT_DIR, outputName);
+  }
+  return resolve(outputName);
+}
+
 function getVolumeName(name: "data" | "vault") {
   return `${projectName}_steve-${name}`;
 }
@@ -49,8 +59,9 @@ async function main() {
     const date = new Date().toISOString().split("T")[0];
     const filename = filenameArg || `steve-backup-${date}.enc`;
     writeFileSync(filename, encrypted);
+    const displayPath = getBackupDisplayPath(filename);
 
-    s.stop(`Backup saved to ${filename}`);
+    s.stop(`Backup saved to ${displayPath}`);
     p.outro(`${(encrypted.length / 1024 / 1024).toFixed(1)} MB`);
   } catch (err) {
     s.stop("Backup failed");
