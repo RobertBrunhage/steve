@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { strict as assert } from "node:assert";
 import { tmpdir } from "node:os";
@@ -15,12 +15,15 @@ export interface TestEnv {
   cwd: string;
   env: NodeJS.ProcessEnv;
   backupDir: string;
+  localEnvDir: string;
 }
 
 export function createTestEnv(cwd: string, name: string): TestEnv {
   const suffix = `${name}-${Date.now()}`;
   const backupDir = join(tmpdir(), `steve-e2e-${suffix}`);
   mkdirSync(backupDir, { recursive: true });
+  const localEnvDir = join(backupDir, "local-env");
+  mkdirSync(localEnvDir, { recursive: true });
   const basePort = 30000 + Math.floor(Math.random() * 5000);
   const webPort = basePort;
   const telegramPort = basePort + 100;
@@ -35,6 +38,7 @@ export function createTestEnv(cwd: string, name: string): TestEnv {
     backupPassword: "steve-backup-password",
     cwd,
     backupDir,
+    localEnvDir,
     env: {
       ...process.env,
       STEVE_PROJECT: `steve-${suffix}`,
@@ -42,12 +46,38 @@ export function createTestEnv(cwd: string, name: string): TestEnv {
       STEVE_OPENCODE_PORT_BASE: String(opencodePortBase),
       STEVE_TELEGRAM_API_BASE: `http://host.docker.internal:${telegramPort}`,
       STEVE_BACKUP_PASSWORD: "steve-backup-password",
+      STEVE_LOCAL_ENV_DIR: localEnvDir,
     },
   };
 }
 
 export function cleanupTestEnv(testEnv: TestEnv) {
   rmSync(testEnv.backupDir, { recursive: true, force: true });
+}
+
+export function getLocalComposeArgs(cwd: string, project: string, envDir = join(cwd, ".steve-dev")): string[] {
+  return [
+    "compose",
+    "--project-name",
+    project,
+    "--env-file",
+    join(envDir, ".env"),
+    "-f",
+    join(cwd, "docker-compose.yml"),
+    "-f",
+    join(envDir, "agents.compose.yml"),
+  ];
+}
+
+export async function downLocalStack(cwd: string, testEnv: TestEnv) {
+  if (!existsSync(join(testEnv.localEnvDir, ".env"))) {
+    return;
+  }
+  await runCommand("docker", [...getLocalComposeArgs(cwd, testEnv.project, testEnv.localEnvDir), "down", "-v"], {
+    cwd,
+    env: testEnv.env,
+    timeoutMs: 120000,
+  }).catch(() => {});
 }
 
 export function runCommand(command: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs?: number; capture?: boolean }) {

@@ -4,6 +4,7 @@ import {
   CookieJar,
   cleanupTestEnv,
   createTestEnv,
+  downLocalStack,
   extractCsrf,
   requestText,
   runCommand,
@@ -60,17 +61,7 @@ async function main() {
     assert.equal(createSecret.res.status, 302);
 
     await runCommand("./steve", ["backup", backupFile], { cwd, env: testEnv.env, timeoutMs: 120000 });
-    await runCommand("docker", [
-      "compose",
-      "--project-name",
-      testEnv.project,
-      "--env-file",
-      join(cwd, ".steve-dev", ".env"),
-      "-f",
-      join(cwd, "docker-compose.yml"),
-      "down",
-      "-v",
-    ], { cwd, env: testEnv.env, timeoutMs: 120000 });
+    await downLocalStack(cwd, testEnv);
 
     await runCommand("./steve", ["restore", backupFile], { cwd, env: testEnv.env, timeoutMs: 120000 });
     await runCommand("./steve", ["up"], { cwd, env: testEnv.env, timeoutMs: 120000 });
@@ -93,17 +84,7 @@ async function main() {
     console.log("E2E restore flow passed");
   } finally {
     await telegram.close();
-    await runCommand("docker", [
-      "compose",
-      "--project-name",
-      testEnv.project,
-      "--env-file",
-      join(cwd, ".steve-dev", ".env"),
-      "-f",
-      join(cwd, "docker-compose.yml"),
-      "down",
-      "-v",
-    ], { cwd, env: testEnv.env, timeoutMs: 120000 }).catch(() => {});
+    await downLocalStack(cwd, testEnv);
     cleanupTestEnv(testEnv);
   }
 }

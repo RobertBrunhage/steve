@@ -1,10 +1,10 @@
-import { join } from "node:path";
 import { strict as assert } from "node:assert";
 import {
   CookieJar,
   assertIncludes,
   cleanupTestEnv,
   createTestEnv,
+  downLocalStack,
   extractCsrf,
   requestText,
   runCommand,
@@ -91,17 +91,7 @@ async function main() {
     console.log("E2E local flow passed");
   } finally {
     await telegram.close();
-    await runCommand("docker", [
-      "compose",
-      "--project-name",
-      testEnv.project,
-      "--env-file",
-      join(cwd, ".steve-dev", ".env"),
-      "-f",
-      join(cwd, "docker-compose.yml"),
-      "down",
-      "-v",
-    ], { cwd, env: testEnv.env, timeoutMs: 120000 }).catch(() => {});
+    await downLocalStack(cwd, testEnv);
     cleanupTestEnv(testEnv);
   }
 }

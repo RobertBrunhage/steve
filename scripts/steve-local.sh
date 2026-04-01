@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
-ENV_DIR="$REPO_ROOT/.steve-dev"
+ENV_DIR=${STEVE_LOCAL_ENV_DIR:-$REPO_ROOT/.steve-dev}
 ENV_FILE="$ENV_DIR/.env"
 AGENTS_COMPOSE_FILE="$ENV_DIR/agents.compose.yml"
 COMPOSE_FILE="$REPO_ROOT/docker-compose.yml"

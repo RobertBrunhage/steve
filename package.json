@@ -11,6 +11,7 @@
     "start": "node dist/index.js",
     "test": "tsx test/setup.test.ts && tsx test/mcp.test.ts && tsx test/platform.test.ts",
     "test:e2e:local": "tsx test/e2e/local-flow.ts",
+    "test:e2e:agents": "tsx test/e2e/agents-flow.ts",
     "test:e2e:restore": "tsx test/e2e/restore-flow.ts"
   },
   "dependencies": {

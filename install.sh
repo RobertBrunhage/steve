@@ -160,6 +160,13 @@ STEVE_HOSTNAME=$host
 EOF
 }
 
+ensure_agents_compose_file_install() {
+    mkdir -p "$INSTALL_ROOT"
+    if [[ ! -f "$AGENTS_COMPOSE_FILE" ]]; then
+        printf 'services: {}\n' > "$AGENTS_COMPOSE_FILE"
+    fi
+}
+
 write_wrapper() {
     mkdir -p "$BIN_DIR"
 
@@ -576,7 +583,7 @@ maybe_show_setup_url_install() {
     port=$DEFAULT_WEB_PORT
 
     for _ in $(seq 1 15); do
-        token=$(docker compose --project-name "$DEFAULT_PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T steve sh -lc 'if [ -f /data/setup-token.json ]; then sed -n "s/.*\"token\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" /data/setup-token.json; fi' 2>/dev/null || true)
+        token=$(docker compose --project-name "$DEFAULT_PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$AGENTS_COMPOSE_FILE" exec -T steve sh -lc 'if [ -f /data/setup-token.json ]; then sed -n "s/.*\"token\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" /data/setup-token.json; fi' 2>/dev/null || true)
         if [[ -n "$token" ]]; then
             if [[ "$host" == "localhost" ]]; then
                 printf 'Setup URL: http://localhost:%s/setup?token=%s\n' "$port" "$token"
@@ -619,11 +626,12 @@ download_compose
 
 print_step "Writing local configuration"
 write_env
+ensure_agents_compose_file_install
 write_wrapper
 maybe_update_path
 
 print_step "Starting Steve"
-docker compose --project-name "$DEFAULT_PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d
+docker compose --project-name "$DEFAULT_PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$AGENTS_COMPOSE_FILE" up -d
 
 printf '\nSteve is installed.\n'
 printf 'Version: %s\n' "$requested_ref"
