@@ -63,6 +63,27 @@ jobs:
       - name: Run local Docker + mocked Telegram e2e
         run: pnpm test:e2e:local
 
+  agents-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run agent lifecycle e2e
+        run: pnpm test:e2e:agents
+
   restore-e2e:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
