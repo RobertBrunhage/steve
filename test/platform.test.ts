@@ -128,14 +128,13 @@ scripts:
     assert.equal(readFileSync(join(userSkillsDir, "weather", "SKILL.md"), "utf-8"), "---\nname: Weather\ndescription: Test\n---\n\n# Weather\n");
   });
 
-  test("users: legacy telegram-id map migrates to user-centric shape", () => {
-    const normalized = normalizeUsers({ "12345": "robert" });
-    assert.equal(normalized.migrated, true);
+  test("users: invalid entries are ignored when normalizing", () => {
+    const normalized = normalizeUsers({ robert: "12345", vanessa: { name: "vanessa", channels: { telegram: { chat_id: "67890" } } } });
     assert.deepEqual(normalized.users, {
-      robert: {
-        name: "robert",
+      vanessa: {
+        name: "vanessa",
         channels: {
-          telegram: { chat_id: "12345" },
+          telegram: { chat_id: "67890" },
         },
       },
     });

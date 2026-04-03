@@ -79,34 +79,12 @@ function injectSecretFields(env: Record<string, string>, injectedSecretValues: s
   }
 }
 
-function getVaultObjectCaseInsensitive(vault: Vault, key: string): { resolvedKey: string; value: Record<string, unknown> } | null {
+function getVaultObject(vault: Vault, key: string): { resolvedKey: string; value: Record<string, unknown> } | null {
   const exact = vault.get(key);
   if (exact && typeof exact === "object") {
     return { resolvedKey: key, value: exact };
   }
-
-  const lower = key.toLowerCase();
-  for (const existingKey of vault.list()) {
-    if (existingKey.toLowerCase() !== lower) continue;
-    const value = vault.get(existingKey);
-    if (value && typeof value === "object") {
-      return { resolvedKey: existingKey, value };
-    }
-  }
-
   return null;
-}
-
-function getLegacyKeyCandidates(key: string): string[] {
-  const match = key.match(/^users\/([^/]+)\/([^/]+)\/(app|tokens)$/i);
-  if (!match) return [];
-
-  const [, userName, integration, kind] = match;
-  if (kind.toLowerCase() === "app") {
-    return [`${userName}/${integration}`];
-  }
-
-  return [`${userName}/${integration}-tokens`];
 }
 
 export function buildScriptExecutionContext(options: {
@@ -115,9 +93,8 @@ export function buildScriptExecutionContext(options: {
   scriptPath: string;
   dataDir: string;
   projectRoot: string;
-  fallbackSkillName?: string | null;
 }): ScriptExecutionContext {
-  const { vault, userName, scriptPath, dataDir, projectRoot, fallbackSkillName } = options;
+  const { vault, userName, scriptPath, dataDir, projectRoot } = options;
 
   if (!vault || !userName) {
     return { env: {}, injectedSecretValues: [], injectedSecretKeys: [], usedManifest: false, redactOutput: true };
@@ -132,9 +109,7 @@ export function buildScriptExecutionContext(options: {
   if (scriptManifest?.secrets) {
     for (const secret of scriptManifest.secrets) {
       const key = resolveTemplate(secret.key, userName);
-      const match = [key, ...getLegacyKeyCandidates(key)]
-        .map((candidate) => getVaultObjectCaseInsensitive(vault, candidate))
-        .find((candidate): candidate is { resolvedKey: string; value: Record<string, unknown> } => !!candidate);
+      const match = getVaultObject(vault, key);
       if (!match) continue;
       injectedSecretKeys.push(match.resolvedKey);
       injectSecretFields(env, injectedSecretValues, match.value, secret.fields);
@@ -148,17 +123,6 @@ export function buildScriptExecutionContext(options: {
         redactOutput: scriptManifest.redactOutput !== false,
       };
     }
-
-  if (!fallbackSkillName) {
-    return { env, injectedSecretValues, injectedSecretKeys, usedManifest: false, redactOutput: true };
-  }
-
-  const entries = vault.getByPrefix(`${userName}/${fallbackSkillName}`);
-  for (const [key, value] of Object.entries(entries)) {
-    if (typeof value !== "object" || value === null) continue;
-    injectedSecretKeys.push(key);
-    injectSecretFields(env, injectedSecretValues, value);
-  }
 
   return {
     env,

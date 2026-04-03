@@ -248,6 +248,8 @@ pnpm doctor
 
 Published installs track versioned releases, not `latest`. `main` continues to publish dev images for trunk-based work.
 
+If you want the newest main build anyway, use `steve update --yolo`.
+
 ## Security Model
 
 Steve is designed for trusted local or household use.

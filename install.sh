@@ -227,18 +227,6 @@ ensure_agents_compose_file() {
     fi
 }
 
-remove_user_agents() {
-    local project ids=()
-    project="${STEVE_PROJECT:-$DEFAULT_PROJECT}"
-    while IFS= read -r id; do
-        [[ -n "$id" ]] && ids+=("$id")
-    done < <(docker ps -aq --filter "name=$project-opencode-" 2>/dev/null || true)
-
-    if [[ ${#ids[@]} -gt 0 ]]; then
-        docker rm -f "${ids[@]}" >/dev/null
-    fi
-}
-
 get_env_value() {
     local key=$1
     if [[ -f "$ENV_FILE" ]]; then
@@ -328,6 +316,8 @@ Commands:
   restore   Restore encrypted backup
   pull      Pull the currently configured images
   update    Update Steve to the newest published release
+  update --yolo
+            Update Steve to the latest main build
   update skills [--force]
             Copy bundled skills into every user's workspace
   setup-url Print the one-time setup URL
@@ -412,7 +402,6 @@ restore_steve() {
         exit 1
     fi
     ensure_backup_password
-    remove_user_agents
     docker_compose down >/dev/null 2>&1 || true
     local source=$1
     local host_dir host_file
@@ -491,6 +480,18 @@ case "$cmd" in
     update)
         if [[ "${2:-}" == "skills" ]]; then
             update_skills "${3:-}"
+        elif [[ "${2:-}" == "--yolo" ]]; then
+            next_ref="main"
+            curl -fsSL "https://raw.githubusercontent.com/$REPO_SLUG/$next_ref/docker-compose.yml" -o "$COMPOSE_FILE"
+            apply_release_ref "$next_ref"
+            docker_compose pull
+            docker_compose up -d
+            if ! refresh_wrapper "$next_ref"; then
+                printf 'Warning: updated runtime to %s, but could not refresh the local steve command wrapper. Rerun the installer if wrapper behavior seems stale.\n' "$next_ref" >&2
+            fi
+            printf 'YOLO updated Steve to %s\n' "$next_ref"
+            show_url
+            maybe_show_setup_url
         else
             next_ref=$(resolve_latest_release_ref)
             curl -fsSL "https://raw.githubusercontent.com/$REPO_SLUG/$next_ref/docker-compose.yml" -o "$COMPOSE_FILE"

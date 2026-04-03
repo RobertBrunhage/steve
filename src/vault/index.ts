@@ -117,33 +117,7 @@ export function recoverKeyfile(vaultDir: string, password: string): Buffer {
   return Buffer.from(base64, "base64");
 }
 
-/** Migrate old password-based vault to keyfile mode */
-export function migrateVault(vaultDir: string, password: string): Buffer {
-  const oldSecretsPath = join(vaultDir, SECRETS_NAME);
-
-  // Read old vault with password
-  let data: Record<string, Record<string, unknown>> = {};
-  if (existsSync(oldSecretsPath)) {
-    try {
-      const blob = readFileSync(oldSecretsPath);
-      const json = decrypt(blob, password);
-      data = JSON.parse(json);
-    } catch {
-      throw new Error("Wrong password — cannot migrate vault");
-    }
-  }
-
-  // Generate keyfile
-  const keyfile = initializeVault(vaultDir, password);
-
-  // Re-encrypt vault with keyfile
-  const encrypted = encryptWithKey(JSON.stringify(data), keyfile);
-  writeFileSync(oldSecretsPath, encrypted);
-
-  return keyfile;
-}
-
-/** Check if vault is in keyfile mode (has a keyfile) or password mode */
+/** Check if vault is initialized with a keyfile */
 export function hasKeyfile(vaultDir: string): boolean {
   return existsSync(join(vaultDir, KEYFILE_NAME));
 }

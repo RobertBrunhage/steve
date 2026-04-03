@@ -58,17 +58,6 @@ docker_compose() {
     docker compose --project-name "$PROJECT_NAME" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$AGENTS_COMPOSE_FILE" "$@"
 }
 
-remove_user_agents() {
-    local ids=()
-    while IFS= read -r id; do
-        [[ -n "$id" ]] && ids+=("$id")
-    done < <(docker ps -aq --filter "name=${PROJECT_NAME}-opencode-" 2>/dev/null || true)
-
-    if [[ ${#ids[@]} -gt 0 ]]; then
-        docker rm -f "${ids[@]}" >/dev/null
-    fi
-}
-
 show_url() {
     local host
     host=$(detect_hostname)
@@ -171,7 +160,6 @@ restore_steve() {
     fi
     ensure_local_images
     ensure_backup_password
-    remove_user_agents
     docker_compose down >/dev/null 2>&1 || true
     local source=$1
     local host_dir host_file

@@ -231,12 +231,7 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
       scriptPath: resolved,
       dataDir,
       projectRoot,
-      fallbackSkillName: skill,
     });
-
-    if (!scriptContext.usedManifest && skill) {
-      console.warn(`run_script fallback secret injection used for ${skill}/${basename(resolved)}`);
-    }
 
     return new Promise((res) => {
       const startedAt = Date.now();

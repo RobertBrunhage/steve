@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { config } from "./config.js";
 import { toUserSlug, type UsersMap, uniqueUserSlugs } from "./users.js";
@@ -11,16 +11,11 @@ export interface UserAgentRecord {
 export type UserAgentState = Record<string, UserAgentRecord>;
 
 const USER_AGENT_STATE_FILE = "opencode-agents.json";
-const LEGACY_PORTS_FILE = "opencode-ports.json";
 const USER_AGENT_COMPOSE_FILE = "agents.compose.yml";
 const DEFAULT_OPENCODE_IMAGE = "ghcr.io/robertbrunhage/steve-opencode:main";
 
 function getUserAgentStatePath(): string {
   return join(config.dataDir, USER_AGENT_STATE_FILE);
-}
-
-function getLegacyPortsPath(): string {
-  return join(config.dataDir, LEGACY_PORTS_FILE);
 }
 
 export function getUserAgentComposePath(): string {
@@ -41,32 +36,10 @@ function normalizeUserAgentRecord(value: unknown): UserAgentRecord | null {
   };
 }
 
-function migrateLegacyPorts(): UserAgentState {
-  try {
-    if (!existsSync(getLegacyPortsPath())) return {};
-    const data = JSON.parse(readFileSync(getLegacyPortsPath(), "utf-8")) as Record<string, unknown>;
-    const next: UserAgentState = {};
-    for (const [userName, rawPort] of Object.entries(data)) {
-      const port = Number(rawPort);
-      if (!Number.isFinite(port) || port <= 0) continue;
-      next[toUserSlug(userName)] = { enabled: true, port };
-    }
-    if (Object.keys(next).length > 0) {
-      writeUserAgentState(next);
-      rmSync(getLegacyPortsPath(), { force: true });
-    }
-    return next;
-  } catch {
-    return {};
-  }
-}
-
 export function readUserAgentState(): UserAgentState {
   try {
     const path = getUserAgentStatePath();
-    if (!existsSync(path)) {
-      return migrateLegacyPorts();
-    }
+    if (!existsSync(path)) return {};
     const data = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
     const next: UserAgentState = {};
     for (const [userName, value] of Object.entries(data)) {
@@ -76,7 +49,7 @@ export function readUserAgentState(): UserAgentState {
     }
     return next;
   } catch {
-    return migrateLegacyPorts();
+    return {};
   }
 }
 

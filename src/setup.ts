@@ -186,11 +186,7 @@ export async function runSetup(): Promise<SetupResult> {
   }
 
   const botToken = getTelegramBotToken(vault);
-  const normalizedUsers = normalizeUsers(vault.get("steve/users"));
-  const users = normalizedUsers.users;
-  if (normalizedUsers.migrated && Object.keys(users).length > 0) {
-    vault.set("steve/users", users as any);
-  }
+  const users = normalizeUsers(vault.get("steve/users")).users;
 
   if (!botToken || !users || Object.keys(users).length === 0) {
     createDirectories();

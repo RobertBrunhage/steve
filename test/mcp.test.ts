@@ -27,7 +27,6 @@ function run() {
   const vaultDir = join(testDir, "vault");
 
   mkdirSync(join(dataDir, "users", "robert", "skills", "weather", "scripts"), { recursive: true });
-  mkdirSync(join(dataDir, "users", "robert", "skills", "legacy", "scripts"), { recursive: true });
   mkdirSync(join(projectRoot, "scripts"), { recursive: true });
 
   writeFileSync(join(dataDir, "users", "robert", "skills", "weather", "SKILL.md"), `---
@@ -60,9 +59,8 @@ scripts:
   const vault = new Vault(vaultDir, key);
   vault.set("users/robert/weather/app", { api_key: "weather-secret", ignored: "skip-me" } as any);
   vault.set("users/robert/weather/tokens", { refresh_token: "refresh-secret", access_token: "unused" } as any);
-  vault.set("robert/legacy", { client_id: "legacy-id", client_secret: "legacy-secret" } as any);
   vault.set("robert/global", { token: "project-secret" } as any);
-  vault.set("Robert/withings", { client_id: "mixed-client", client_secret: "mixed-secret" } as any);
+  vault.set("users/robert/withings/app", { client_id: "withings-client", client_secret: "withings-secret" } as any);
 
   const manifestContext = buildScriptExecutionContext({
     vault,
@@ -70,7 +68,6 @@ scripts:
     scriptPath: join(dataDir, "users", "robert", "skills", "weather", "scripts", "fetch.sh"),
     dataDir,
     projectRoot,
-    fallbackSkillName: "weather",
   });
 
   test("manifest: injects only declared secret fields", () => {
@@ -83,22 +80,18 @@ scripts:
     assert.deepEqual(manifestContext.injectedSecretKeys, ["users/robert/weather/app", "users/robert/weather/tokens"]);
   });
 
-  const fallbackContext = buildScriptExecutionContext({
+  const noManifestContext = buildScriptExecutionContext({
     vault,
     userName: "robert",
-    scriptPath: join(dataDir, "users", "robert", "skills", "legacy", "scripts", "setup.sh"),
+    scriptPath: join(dataDir, "users", "robert", "skills", "weather", "scripts", "missing.sh"),
     dataDir,
     projectRoot,
-    fallbackSkillName: "legacy",
   });
 
-  test("fallback: injects legacy prefix-based secrets when no manifest exists", () => {
-    assert.equal(fallbackContext.usedManifest, false);
-    assert.equal(fallbackContext.redactOutput, true);
-    assert.deepEqual(fallbackContext.env, {
-      STEVE_CRED_CLIENT_ID: "legacy-id",
-      STEVE_CRED_CLIENT_SECRET: "legacy-secret",
-    });
+  test("scripts without a manifest entry do not receive secret injection", () => {
+    assert.equal(noManifestContext.usedManifest, false);
+    assert.equal(noManifestContext.redactOutput, true);
+    assert.deepEqual(noManifestContext.env, {});
   });
 
   const projectContext = buildScriptExecutionContext({
@@ -114,15 +107,7 @@ scripts:
     assert.deepEqual(projectContext.env, { STEVE_CRED_TOKEN: "project-secret" });
   });
 
-  const mixedCaseContext = buildScriptExecutionContext({
-    vault,
-    userName: "robert",
-    scriptPath: join(dataDir, "users", "robert", "skills", "weather", "scripts", "fetch.sh"),
-    dataDir,
-    projectRoot,
-  });
-
-  test("manifest: exact secret lookup is case-insensitive for migrated keys", () => {
+  test("manifest: exact secret lookup uses canonical users/<user>/<integration>/app keys", () => {
     const withingsManifestPath = join(dataDir, "users", "robert", "skills", "withings", "SKILL.md");
     mkdirSync(join(dataDir, "users", "robert", "skills", "withings", "scripts"), { recursive: true });
     writeFileSync(withingsManifestPath, `---
@@ -143,14 +128,13 @@ scripts:
       scriptPath: join(dataDir, "users", "robert", "skills", "withings", "scripts", "setup.sh"),
       dataDir,
       projectRoot,
-      fallbackSkillName: "withings",
     });
     assert.deepEqual(ctx.env, {
-      STEVE_CRED_CLIENT_ID: "mixed-client",
-      STEVE_CRED_CLIENT_SECRET: "mixed-secret",
+      STEVE_CRED_CLIENT_ID: "withings-client",
+      STEVE_CRED_CLIENT_SECRET: "withings-secret",
     });
     assert.equal(ctx.redactOutput, true);
-    assert.deepEqual(ctx.injectedSecretKeys, ["Robert/withings"]);
+    assert.deepEqual(ctx.injectedSecretKeys, ["users/robert/withings/app"]);
   });
 
   test("redaction: removes injected secret values from output", () => {
