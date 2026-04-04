@@ -12,6 +12,15 @@ on:
         required: true
         default: true
         type: boolean
+      beta_number:
+        description: Beta number to use when prerelease is checked (for example 2 -> 2026.4.1-beta.2)
+        required: true
+        default: '1'
+        type: string
+      promote_from_beta:
+        description: When prerelease is unchecked, promote this beta into the stable release (for example 2026.4.1-beta.2)
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -44,12 +53,40 @@ jobs:
             echo "Release date must look like 2026.4.1" >&2
             exit 1
           fi
-          version="v${release_date}"
+          stable_version="v${release_date}"
           if [[ "${{ inputs.prerelease }}" == "true" ]]; then
-            version="${version}-beta.1"
+            beta_number="${{ inputs.beta_number }}"
+            if [[ ! "$beta_number" =~ ^[1-9][0-9]*$ ]]; then
+              echo "Beta number must be a positive integer" >&2
+              exit 1
+            fi
+            version="${stable_version}-beta.${beta_number}"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "source_ref=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
           else
+            version="$stable_version"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            promote_input="${{ inputs.promote_from_beta }}"
+            if [[ -z "$promote_input" ]]; then
+              echo "Stable releases must promote an existing beta for the same date" >&2
+              exit 1
+            fi
+            if [[ "$promote_input" != v* ]]; then
+              promote_input="v${promote_input}"
+            fi
+            if [[ ! "$promote_input" =~ ^v[0-9]{4}\.[1-9][0-9]*\.[1-9][0-9]*-beta\.[1-9][0-9]*$ ]]; then
+              echo "Promotion source must look like 2026.4.1-beta.2" >&2
+              exit 1
+            fi
+            if [[ "${promote_input%%-beta.*}" != "$stable_version" ]]; then
+              echo "Promotion beta must match the requested release date" >&2
+              exit 1
+            fi
+            if ! git ls-remote --tags origin "refs/tags/$promote_input" | grep -q .; then
+              echo "Promotion source tag $promote_input does not exist" >&2
+              exit 1
+            fi
+            echo "source_ref=$promote_input" >> "$GITHUB_OUTPUT"
           fi
           if git ls-remote --tags origin "refs/tags/$version" | grep -q .; then
             echo "Tag $version already exists" >&2
@@ -57,6 +94,13 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "release_name=Steve ${version#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release source
+        run: git checkout "${{ steps.version.outputs.source_ref }}"
+
+      - name: Resolve release target SHA
+        id: target
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Create local tag
         run: git tag "${{ steps.version.outputs.version }}"
@@ -100,7 +144,7 @@ jobs:
         run: |
           args=(
             release create "${{ steps.version.outputs.version }}"
-            --target "$GITHUB_SHA"
+            --target "${{ steps.target.outputs.sha }}"
             --title "${{ steps.version.outputs.release_name }}"
             --generate-notes
           )

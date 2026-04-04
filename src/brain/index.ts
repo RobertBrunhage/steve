@@ -130,19 +130,23 @@ export class Brain {
   }
 
   private async promptSession(oc: OpencodeClient, sessionId: string, parts: PromptPart[]) {
-    const configRes = await oc.config.get({});
-    const configuredModel = configRes.data?.model;
-    const model = configuredModel && configuredModel.includes("/")
-      ? {
-          providerID: configuredModel.split("/")[0]!,
-          modelID: configuredModel.slice(configuredModel.indexOf("/") + 1),
-        }
-      : undefined;
+    const model = await this.getConfiguredModel(oc);
 
     return oc.session.prompt({
       path: { id: sessionId },
       body: { parts, agent: "steve", model },
     });
+  }
+
+  private async getConfiguredModel(oc: OpencodeClient): Promise<{ providerID: string; modelID: string } | undefined> {
+    const configRes = await oc.config.get({});
+    const configuredModel = configRes.data?.model;
+    return configuredModel && configuredModel.includes("/")
+      ? {
+          providerID: configuredModel.split("/")[0]!,
+          modelID: configuredModel.slice(configuredModel.indexOf("/") + 1),
+        }
+      : undefined;
   }
 
   private async promptWithSessionRetry(oc: OpencodeClient, userName: string, parts: PromptPart[]) {
@@ -218,6 +222,11 @@ export class Brain {
   async compactPrimarySession(userName: string): Promise<boolean> {
     const key = toUserSlug(userName);
     const oc = this.getClient(userName);
+    const model = await this.getConfiguredModel(oc);
+
+    if (!model) {
+      throw new Error(`No configured model for ${userName}`);
+    }
 
     for (let attempt = 0; attempt < 2; attempt++) {
       const sessionId = await this.getPrimarySessionId(oc, userName);
@@ -225,7 +234,7 @@ export class Brain {
         return false;
       }
 
-      const res = await oc.session.summarize({ path: { id: sessionId } });
+      const res = await oc.session.summarize({ path: { id: sessionId }, body: model });
       if (!res.error) {
         this.sessions.set(key, sessionId);
         return true;
