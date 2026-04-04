@@ -153,6 +153,10 @@ export function listScheduledEntries(): ScheduledEntry[] {
   return [...allJobs, ...heartbeats].sort((a, b) => a.userName.localeCompare(b.userName) || a.name.localeCompare(b.name));
 }
 
+export function getVisibleScheduledEntryCount(): number {
+  return listScheduledEntries().length;
+}
+
 export function getScheduledEntryNextRunAt(entry: Pick<ScheduledEntry, "cron" | "at" | "timezone" | "disabled">): string | null {
   if (entry.disabled) return null;
   if (entry.at) {
@@ -386,8 +390,7 @@ export function startScheduler(brain: Brain) {
     }
 
     const totalJobs = allUserJobs.reduce((n, u) => n + u.jobs.filter((j) => !j.disabled).length, 0);
-    const total = activeJobs.size + allUserJobs.reduce((n, u) => n + u.jobs.filter((j) => j.at && !j.disabled).length, 0);
-    setReminderCount(total);
+    setReminderCount(getVisibleScheduledEntryCount());
     if (totalJobs > 0) {
       p.log.info(`${totalJobs} job${totalJobs === 1 ? "" : "s"} loaded`);
     }

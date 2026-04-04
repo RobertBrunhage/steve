@@ -70,6 +70,7 @@ async function run() {
   const { runSetup } = await import("../src/setup.js");
   const { readUserAgentState, syncUserAgentsRuntime, upsertUserAgentRecord, writeUserAgentState } = await import("../src/agents.js");
   const { renderJobsPage } = await import("../src/web/views.js");
+  const { getVisibleScheduledEntryCount } = await import("../src/scheduler.js");
   const result = await runSetup();
 
   test("no vault: returns null vault", () => {
@@ -491,6 +492,10 @@ async function run() {
     assert.match(jobsHtml, /Needs confirmation/);
     assert.match(jobsHtml, /Resume/);
     assert.match(jobsHtml, /Pause/);
+  });
+
+  test("web jobs: dashboard task count matches visible tasks", () => {
+    assert.equal(getVisibleScheduledEntryCount(), 2);
   });
 
   test("web jobs: cron times render in the job timezone", () => {
