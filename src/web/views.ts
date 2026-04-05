@@ -135,6 +135,7 @@ export function renderHome(health: HealthStatus, csrfToken: string): string {
   };
 
   const { components: c, uptime, healthy } = health;
+  const userCount = Object.keys(c.opencode).length;
 
   return layout("Dashboard", `
     ${nav(csrfToken)}
@@ -171,10 +172,10 @@ export function renderHome(health: HealthStatus, csrfToken: string): string {
 
       <div class="bg-surface-card border border-border rounded-lg p-4">
         <div class="flex items-center gap-2 mb-1">
-          ${dot(c.vault.status)}
-          <span class="text-xs text-zinc-400">Secrets</span>
+          <span class="inline-block w-2 h-2 rounded-full bg-zinc-500"></span>
+          <span class="text-xs text-zinc-400">Users</span>
         </div>
-        <p class="text-sm text-white">${c.vault.secrets} stored</p>
+        <p class="text-sm text-white">${userCount} configured</p>
       </div>
 
       <a href="/jobs" class="bg-surface-card border border-border rounded-lg p-4 hover:border-zinc-500 transition-colors block">
