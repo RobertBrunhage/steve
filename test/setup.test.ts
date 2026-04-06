@@ -69,6 +69,7 @@ async function run() {
 
   const { runSetup } = await import("../src/setup.js");
   const { readUserAgentState, syncUserAgentsRuntime, upsertUserAgentRecord, writeUserAgentState } = await import("../src/agents.js");
+  const { getOrAllocateBrowserState } = await import("../src/browser/state.js");
   const { renderJobsPage } = await import("../src/web/views.js");
   const { getVisibleScheduledEntryCount } = await import("../src/scheduler.js");
   const result = await runSetup();
@@ -232,6 +233,17 @@ async function run() {
     assert.match(compose, /opencode-testuser/);
     assert.match(compose, /image: \$\{STEVE_OPENCODE_IMAGE:-ghcr\.io\/robertbrunhage\/steve-opencode:main\}/);
     assert.match(compose, /3457:3456/);
+  });
+
+  test("browser state allocates stable per-user viewer ports", () => {
+    const first = getOrAllocateBrowserState("testuser");
+    const second = getOrAllocateBrowserState("testuser");
+    const other = getOrAllocateBrowserState("friend");
+    assert.deepEqual(second, first);
+    assert.equal(first.viewerPort, 6080);
+    assert.equal(other.viewerPort, 6081);
+    assert.equal(first.display, 90);
+    assert.equal(other.display, 91);
   });
 
   test("agent instructions pin the current user name", () => {
@@ -460,8 +472,42 @@ async function run() {
     assert.equal(friendPage.status, 200);
     assert.match(friendPageHtml, /Connections/);
     assert.match(friendPageHtml, /Connect Telegram/);
+    assert.match(friendPageHtml, /href="\/users\/friend\/browser"/);
+    assert.match(friendPageHtml, /Configure attached Chrome only when a site needs a real signed-in browser/);
     assert.match(friendPageHtml, /Recent Activity/);
     assert.match(friendPageHtml, /href="\/users\/friend\/integrations"/);
+  });
+
+  const friendBrowserPage = await app.request("/users/friend/browser", {
+    headers: { cookie: adminCookie || "" },
+  });
+  const friendBrowserPageHtml = await friendBrowserPage.text();
+
+  test("web users: browser page has attached browser setup guidance", () => {
+    assert.equal(friendBrowserPage.status, 200);
+    assert.match(friendBrowserPageHtml, /Attached Browser/);
+    assert.match(friendBrowserPageHtml, /Steve prefers the container browser by default/);
+    assert.match(friendBrowserPageHtml, /Remote browser companion/);
+    assert.match(friendBrowserPageHtml, /Not configured/);
+    assert.match(friendBrowserPageHtml, /Attach Local Chrome/);
+    assert.match(friendBrowserPageHtml, /Start the companion first, then attach Chrome for this user/);
+  });
+
+  const attachBrowser = await app.request("/users/friend/browser/attach", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      cookie: adminCookie || "",
+    },
+    body: new URLSearchParams({ _csrf: adminCsrf || "", channel: "beta" }),
+  });
+
+  test("web users: attached browser can be configured per user", () => {
+    assert.equal(attachBrowser.status, 302);
+    assert.equal(attachBrowser.headers.get("location"), "/users/friend/browser");
+    const attached = JSON.parse(readFileSync(join(testDir, "users", "friend", ".browser", "attached-browser.json"), "utf-8"));
+    assert.equal(attached.mode, "local_chrome");
+    assert.equal(attached.channel, "beta");
   });
 
   saveUserJobs("robert", [{

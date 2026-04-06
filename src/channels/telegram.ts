@@ -1,6 +1,8 @@
 import type { Channel, SendResult } from "./index.js";
 import { getRuntime, getTelegramApiBase } from "../config.js";
 import { getTelegramChatId } from "../users.js";
+import { readFileSync } from "node:fs";
+import { basename, extname } from "node:path";
 
 export class TelegramChannel implements Channel {
   readonly name = "telegram";
@@ -63,6 +65,30 @@ export class TelegramChannel implements Channel {
       );
     }
 
+    const data = await res.json() as { ok: boolean; description?: string; result?: { message_id: number } };
+    return {
+      ok: data.ok,
+      messageId: data.result?.message_id?.toString(),
+      error: data.description,
+    };
+  }
+
+  async sendFile(userName: string, filePath: string, caption?: string): Promise<SendResult> {
+    const chatId = this.getChatId(userName);
+    if (!chatId) return { ok: false, error: `Unknown user "${userName}"` };
+
+    const ext = extname(filePath).toLowerCase();
+    const method = [".png", ".jpg", ".jpeg", ".webp"].includes(ext) ? "sendPhoto" : "sendDocument";
+    const field = method === "sendPhoto" ? "photo" : "document";
+    const form = new FormData();
+    form.set("chat_id", chatId);
+    if (caption) form.set("caption", caption);
+    form.set(field, new Blob([readFileSync(filePath)]), basename(filePath));
+
+    const res = await fetch(`${getTelegramApiBase()}/bot${this.getBotToken()}/${method}`, {
+      method: "POST",
+      body: form,
+    });
     const data = await res.json() as { ok: boolean; description?: string; result?: { message_id: number } };
     return {
       ok: data.ok,

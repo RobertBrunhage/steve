@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import type { Vault } from "./vault/index.js";
 import { getTelegramBotToken } from "./secrets.js";
 import { getAllowedTelegramIds, normalizeUsers, toUserSlug, type UsersMap } from "./users.js";
+import type { BrowserSettings } from "./browser/types.js";
 
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -16,11 +17,24 @@ const vaultDir = process.env.STEVE_VAULT_DIR || "/vault";
 const mcpPort = Number(process.env.STEVE_MCP_PORT) || 3100;
 const webPort = Number(process.env.STEVE_WEB_PORT) || 7838;
 const opencodePortBase = Number(process.env.STEVE_OPENCODE_PORT_BASE) || 3456;
+const browserViewerPortBase = Number(process.env.STEVE_BROWSER_VIEWER_PORT_BASE) || 6080;
+const browserViewerPortMax = Number(process.env.STEVE_BROWSER_VIEWER_PORT_MAX) || 6119;
+const browserVncPortBase = Number(process.env.STEVE_BROWSER_VNC_PORT_BASE) || 5901;
+const browserDisplayBase = Number(process.env.STEVE_BROWSER_DISPLAY_BASE) || 90;
+const remoteBrowserBaseUrl = process.env.STEVE_REMOTE_BROWSER_URL || "";
 const telegramApiBase = process.env.STEVE_TELEGRAM_API_BASE || "https://api.telegram.org";
 const DEFAULT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
+  enabled: true,
+  defaultTarget: "container",
+  artifactsRetentionDays: 14,
+  remoteEnabled: !!remoteBrowserBaseUrl,
+  remoteBaseUrl: remoteBrowserBaseUrl,
+};
 
 export interface SteveSystemSettings {
   timezone: string;
+  browser: BrowserSettings;
 }
 
 export interface SteveConfig {
@@ -36,6 +50,10 @@ export interface SteveConfig {
   mcpPort: number;
   webPort: number;
   opencodePortBase: number;
+  browserViewerPortBase: number;
+  browserViewerPortMax: number;
+  browserVncPortBase: number;
+  browserDisplayBase: number;
   telegramApiBase: string;
 }
 
@@ -90,6 +108,10 @@ export const config: SteveConfig = Object.freeze({
   mcpPort,
   webPort,
   opencodePortBase,
+  browserViewerPortBase,
+  browserViewerPortMax,
+  browserVncPortBase,
+  browserDisplayBase,
   telegramApiBase,
 });
 
@@ -99,6 +121,21 @@ export function getTelegramApiBase(): string {
 
 function getSystemSettingsPath(): string {
   return join(config.dataDir, "system-settings.json");
+}
+
+function getRemoteBrowserRuntimePath(): string {
+  return join(config.stateDir, "remote-browser.json");
+}
+
+function readRemoteBrowserRuntime(): Partial<BrowserSettings> {
+  try {
+    const path = getRemoteBrowserRuntimePath();
+    if (!existsSync(path)) return {};
+    const parsed = JSON.parse(readFileSync(path, "utf-8")) as Partial<BrowserSettings>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
 export function isValidTimezone(value: string): boolean {
@@ -118,15 +155,28 @@ export function readSystemSettings(): SteveSystemSettings {
   try {
     const path = getSystemSettingsPath();
     if (!existsSync(path)) {
-      return { timezone: DEFAULT_TIMEZONE };
+      return { timezone: DEFAULT_TIMEZONE, browser: DEFAULT_BROWSER_SETTINGS };
     }
     const parsed = JSON.parse(readFileSync(path, "utf-8")) as Partial<SteveSystemSettings>;
     const timezone = typeof parsed.timezone === "string" && isValidTimezone(parsed.timezone)
       ? parsed.timezone
       : DEFAULT_TIMEZONE;
-    return { timezone };
+    const browser = parsed.browser && typeof parsed.browser === "object"
+      ? {
+          enabled: true,
+          defaultTarget: "container" as BrowserSettings["defaultTarget"],
+          artifactsRetentionDays: Number(parsed.browser.artifactsRetentionDays) > 0 ? Number(parsed.browser.artifactsRetentionDays) : DEFAULT_BROWSER_SETTINGS.artifactsRetentionDays,
+          remoteEnabled: parsed.browser.remoteEnabled !== undefined
+            ? parsed.browser.remoteEnabled !== false
+            : typeof parsed.browser.remoteBaseUrl === "string"
+              ? parsed.browser.remoteBaseUrl.length > 0
+              : DEFAULT_BROWSER_SETTINGS.remoteEnabled,
+          remoteBaseUrl: typeof parsed.browser.remoteBaseUrl === "string" ? parsed.browser.remoteBaseUrl : DEFAULT_BROWSER_SETTINGS.remoteBaseUrl,
+        }
+      : DEFAULT_BROWSER_SETTINGS;
+    return { timezone, browser };
   } catch {
-    return { timezone: DEFAULT_TIMEZONE };
+    return { timezone: DEFAULT_TIMEZONE, browser: DEFAULT_BROWSER_SETTINGS };
   }
 }
 
@@ -142,6 +192,22 @@ export function writeSystemSettings(settings: Partial<SteveSystemSettings>): Ste
 
 export function getSystemTimezone(): string {
   return readSystemSettings().timezone;
+}
+
+export function getBrowserSettings(): BrowserSettings {
+  const persisted = readSystemSettings().browser;
+  const runtime = readRemoteBrowserRuntime();
+  return {
+    ...persisted,
+    ...(typeof runtime.remoteEnabled === "boolean" ? { remoteEnabled: runtime.remoteEnabled } : {}),
+    ...(typeof runtime.remoteBaseUrl === "string" ? { remoteBaseUrl: runtime.remoteBaseUrl } : {}),
+  };
+}
+
+export function getBrowserViewerUrl(port: number): string {
+  const host = process.env.STEVE_HOSTNAME || "localhost";
+  const hostname = host === "localhost" || host.includes(".") ? host : `${host}.local`;
+  return `http://${hostname}:${port}/vnc.html?autoconnect=1&resize=scale`;
 }
 
 export function getSteveVersion(): string {

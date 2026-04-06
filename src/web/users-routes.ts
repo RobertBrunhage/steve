@@ -3,7 +3,9 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createOpencodeClient } from "@opencode-ai/sdk/client";
 import { readUserAgentState, syncUserAgentsRuntime, upsertUserAgentRecord, writeUserAgentState, writeUserAgentsCompose } from "../agents.js";
 import { readUserActivity } from "../activity.js";
-import { config, getBaseUrl, getUserDir, refreshRuntimeConfigFromVault } from "../config.js";
+import { clearAttachedBrowserConfig, readAttachedBrowserConfig, writeAttachedBrowserConfig } from "../browser/attachments.js";
+import { getBrowserCompanionStatus } from "../browser/companion-status.js";
+import { config, getBaseUrl, getBrowserSettings, getUserDir, refreshRuntimeConfigFromVault } from "../config.js";
 import { deleteUserAppSecret, getUserAppSecret, listUserAppSecrets, setUserAppSecret } from "../secrets.js";
 import { generateRuntimeConfig, setupUserWorkspace } from "../setup.js";
 import { addOrUpdateTelegramUser, ensureUser, getTelegramChatId, normalizeUsers, writeUserManifest } from "../users.js";
@@ -15,7 +17,7 @@ import {
   removeUserAgent,
   getComposeProject,
 } from "./docker.js";
-import { renderUserAgentPage, renderUserIntegrationsPage, renderUserOverview, renderUserSecretEditForm, renderUserSecretNewForm } from "./views.js";
+import { renderUserAgentPage, renderUserBrowserPage, renderUserIntegrationsPage, renderUserOverview, renderUserSecretEditForm, renderUserSecretNewForm } from "./views.js";
 import { validateIntegrationSlug, validateTelegramId, validateUserSlug } from "./validate.js";
 import type { WebRouteDeps } from "./types.js";
 
@@ -116,12 +118,17 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
       }
     }
 
+    const browserCompanion = await getBrowserCompanionStatus();
+
     return {
       ocStatus,
       agentEnabled,
       ocUrl,
       currentModel,
       modelProviders,
+      attachedBrowser: readAttachedBrowserConfig(name),
+      remoteBrowserAvailable: getBrowserSettings().remoteEnabled,
+      browserCompanion,
       telegramChatId: getTelegramChatId(users, name),
       userSecrets: listUserAppSecrets(deps.getVault(), name),
       recentActivity: readUserActivity(config.dataDir, name, 6),
@@ -171,6 +178,28 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     refreshRuntimeConfigFromVault(vault);
     writeUserManifest(config.dataDir, updatedUsers);
     return c.redirect(`/users/${validatedName.value}`);
+  });
+
+  app.post("/users/:name/browser/attach", async (c) => {
+    const result = await deps.requireAdminForm(c);
+    if (result instanceof Response) return result;
+
+    const validatedName = validateUserSlug(c.req.param("name"));
+    if (!validatedName.ok) return c.redirect("/");
+    const rawChannel = String(result.body.channel || "stable").trim();
+    const channel = rawChannel === "beta" || rawChannel === "dev" || rawChannel === "canary" ? rawChannel : "stable";
+    writeAttachedBrowserConfig(validatedName.value, { channel });
+    return c.redirect(`/users/${validatedName.value}/browser`);
+  });
+
+  app.post("/users/:name/browser/detach", async (c) => {
+    const result = await deps.requireAdminForm(c);
+    if (result instanceof Response) return result;
+
+    const validatedName = validateUserSlug(c.req.param("name"));
+    if (!validatedName.ok) return c.redirect("/");
+    clearAttachedBrowserConfig(validatedName.value);
+    return c.redirect(`/users/${validatedName.value}/browser`);
   });
 
   app.get("/users/:name/integrations/new", (c) => {
@@ -344,6 +373,16 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     const state = await getUserPageState(validatedName.value);
     if (!state) return c.redirect("/");
     return c.html(renderUserIntegrationsPage(validatedName.value, state.ocStatus, session.csrfToken, state));
+  });
+
+  app.get("/users/:name/browser", async (c) => {
+    const session = deps.requireAdminPage(c);
+    if (session instanceof Response) return session;
+
+    const name = c.req.param("name");
+    const state = await getUserPageState(name);
+    if (!state) return c.redirect("/");
+    return c.html(renderUserBrowserPage(name, state.ocStatus, session.csrfToken, state));
   });
 
   app.get("/users/:name/agent", async (c) => {

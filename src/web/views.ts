@@ -1,5 +1,7 @@
 import type { HealthStatus } from "../health.js";
 import type { ActivityEntry } from "../activity.js";
+import type { BrowserCompanionStatus } from "../browser/companion-status.js";
+import type { AttachedBrowserConfig } from "../browser/types.js";
 import type { UserAppSecretSummary } from "../secrets.js";
 import type { ScheduledEntry } from "../scheduler.js";
 
@@ -328,7 +330,7 @@ export function renderJobsPage(entries: Array<ScheduledEntry & { nextRunAt: stri
   `);
 }
 
-type UserPageTab = "overview" | "integrations" | "agent";
+type UserPageTab = "overview" | "browser" | "integrations" | "agent";
 
 interface RenderUserOptions {
   agentEnabled?: boolean;
@@ -337,11 +339,15 @@ interface RenderUserOptions {
   recentActivity?: ActivityEntry[];
   currentModel?: string | null;
   modelProviders?: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }>;
+  attachedBrowser?: AttachedBrowserConfig | null;
+  remoteBrowserAvailable?: boolean;
+  browserCompanion?: BrowserCompanionStatus;
 }
 
 function renderUserTabs(name: string, activeTab: UserPageTab): string {
   const tabs: Array<{ id: UserPageTab; label: string; href: string }> = [
     { id: "overview", label: "Overview", href: `/users/${encodeURIComponent(name)}` },
+    { id: "browser", label: "Browser", href: `/users/${encodeURIComponent(name)}/browser` },
     { id: "integrations", label: "Integrations", href: `/users/${encodeURIComponent(name)}/integrations` },
     { id: "agent", label: "Agent", href: `/users/${encodeURIComponent(name)}/agent` },
   ];
@@ -429,10 +435,14 @@ export function renderUserOverview(name: string, ocStatus: string, csrfToken: st
       <p class="text-xs text-zinc-600 mt-2">Open Telegram, message <strong class="text-zinc-400">@userinfobot</strong>, and it will reply with your chat ID. Paste it above.</p>
     </div>
 
-    <div class="grid grid-cols-2 gap-3 mb-6">
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 mb-6">
       <a href="/users/${encodeURIComponent(name)}/integrations" class="bg-surface-card border border-border rounded-lg p-4 hover:border-zinc-600 transition-colors">
         <h2 class="text-sm font-medium text-white mb-1">Integrations</h2>
         <p class="text-xs text-zinc-500">${integrationCount === 0 ? "None configured yet" : `${integrationCount} configured`}</p>
+      </a>
+      <a href="/users/${encodeURIComponent(name)}/browser" class="bg-surface-card border border-border rounded-lg p-4 hover:border-zinc-600 transition-colors">
+        <h2 class="text-sm font-medium text-white mb-1">Browser</h2>
+        <p class="text-xs text-zinc-500">Configure attached Chrome only when a site needs a real signed-in browser.</p>
       </a>
       <a href="/users/${encodeURIComponent(name)}/agent" class="bg-surface-card border border-border rounded-lg p-4 hover:border-zinc-600 transition-colors">
         <h2 class="text-sm font-medium text-white mb-1">Agent</h2>
@@ -450,6 +460,87 @@ export function renderUserOverview(name: string, ocStatus: string, csrfToken: st
       <div>
         ${renderActivityItems(options?.recentActivity || [])}
       </div>
+    </div>
+  `, options);
+}
+
+export function renderUserBrowserPage(name: string, ocStatus: string, csrfToken: string, options?: RenderUserOptions): string {
+  const attachedBrowser = options?.attachedBrowser || null;
+  const browserCompanion = options?.browserCompanion || {
+    available: false,
+    running: false,
+    message: "The remote browser companion is not configured for this install yet.",
+  };
+  const canAttach = browserCompanion.available && browserCompanion.running;
+  const companionStatusClass = !browserCompanion.available
+    ? "bg-zinc-900 text-zinc-400 border border-border"
+    : browserCompanion.running
+      ? "bg-emerald-950 text-emerald-300 border border-emerald-800"
+      : "bg-amber-950 text-amber-300 border border-amber-800";
+  return renderUserFrame(name, ocStatus, csrfToken, "browser", `
+    <div class="bg-surface-card border border-border rounded-lg p-5 mb-6">
+      <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-4">
+        <div class="min-w-0">
+          <h2 class="text-sm font-medium text-white">Attached Browser</h2>
+          <p class="text-xs text-zinc-500 mt-1">Use this only for sites that need a real signed-in Chrome session. Most browsing should stay in the container browser.</p>
+        </div>
+        <span class="inline-flex items-center justify-center flex-shrink-0 whitespace-nowrap text-xs px-3 py-1 rounded-full ${attachedBrowser ? "bg-emerald-950 text-emerald-300 border border-emerald-800" : "bg-zinc-900 text-zinc-400 border border-border"}">
+          ${attachedBrowser ? "Attached" : "Not attached"}
+        </span>
+      </div>
+      <div class="mb-4 rounded-lg border border-sky-900/60 bg-sky-950/20 p-4">
+        <p class="text-xs text-sky-100">Steve prefers the container browser by default. Use attached Chrome only when a site needs manual sign-in, passkeys, or a more real browser environment.</p>
+      </div>
+      <div class="mb-4 rounded-lg border border-border bg-surface p-4">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+          <div>
+            <p class="text-xs font-medium text-zinc-300">Remote browser companion</p>
+            <p class="text-xs text-zinc-500 mt-1">${escapeHtml(browserCompanion.message)}</p>
+          </div>
+          <span class="inline-flex items-center justify-center flex-shrink-0 whitespace-nowrap text-xs px-3 py-1 rounded-full ${companionStatusClass}">
+            ${!browserCompanion.available ? "Not configured" : browserCompanion.running ? "Running" : "Stopped"}
+          </span>
+        </div>
+        <p class="text-xs text-zinc-500">Start it manually with <code>steve browser up</code>. Steve will not auto-start it for you.</p>
+      </div>
+      <div class="mb-4 rounded-lg border border-border bg-surface p-4">
+        <p class="text-xs font-medium text-zinc-300 mb-3">Setup steps</p>
+        <ol class="space-y-2 text-xs text-zinc-500 list-decimal pl-4">
+          <li>${browserCompanion.running ? "Keep the remote browser companion running on the Steve machine." : "On the Steve machine, run <code>steve browser up</code>."}</li>
+          <li>Open Chrome on that same machine.</li>
+          <li>Enable remote debugging at <a href="chrome://inspect/#remote-debugging" class="text-zinc-300 underline decoration-zinc-600 underline-offset-2 hover:text-white">chrome://inspect/#remote-debugging</a>.</li>
+          <li>Choose the Chrome channel below and click <strong class="text-zinc-300">Attach Local Chrome</strong>.</li>
+          <li>When Steve needs the attached browser, approve the prompt in Chrome.</li>
+        </ol>
+      </div>
+      <form method="POST" action="/users/${encodeURIComponent(name)}/browser/attach" class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-end mb-3">
+        ${hiddenCsrf(csrfToken)}
+        <div class="flex-1">
+          <label class="block text-sm text-zinc-400 mb-1">Chrome channel</label>
+          <select name="channel" class="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-white focus:border-border-focus focus:outline-none">
+            <option value="stable" ${attachedBrowser?.channel === "stable" || !attachedBrowser ? "selected" : ""}>Stable</option>
+            <option value="beta" ${attachedBrowser?.channel === "beta" ? "selected" : ""}>Beta</option>
+            <option value="dev" ${attachedBrowser?.channel === "dev" ? "selected" : ""}>Dev</option>
+            <option value="canary" ${attachedBrowser?.channel === "canary" ? "selected" : ""}>Canary</option>
+          </select>
+        </div>
+        <button type="submit"
+          class="px-4 py-2 text-sm rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors whitespace-nowrap" ${canAttach ? "" : "disabled"}>${attachedBrowser ? "Update Attach" : "Attach Local Chrome"}</button>
+      </form>
+      ${canAttach ? `<p class="text-xs text-zinc-600 mb-3">Once attached, tell Steve to use your attached browser only for sites that need it.</p>` : `<p class="text-xs text-zinc-600 mb-3">Start the companion first, then attach Chrome for this user.</p>`}
+      ${attachedBrowser ? `
+      <div class="flex items-center justify-between gap-4 text-xs text-zinc-500">
+        <div>
+          <div>Channel: <span class="text-zinc-300">${escapeHtml(attachedBrowser.channel)}</span></div>
+          <div>Last connected: <span class="text-zinc-300">${escapeHtml(formatDateTime(attachedBrowser.lastConnectedAt || undefined))}</span></div>
+        </div>
+        <form method="POST" action="/users/${encodeURIComponent(name)}/browser/detach" class="inline">
+          ${hiddenCsrf(csrfToken)}
+          <button type="submit" class="px-3 py-1.5 text-xs rounded-md bg-zinc-800 text-zinc-300 hover:bg-red-900 hover:text-red-300 transition-colors">Detach</button>
+        </form>
+      </div>
+      ${attachedBrowser.lastError ? `<p class="text-xs text-red-300 mt-3">${escapeHtml(attachedBrowser.lastError)}</p>` : ""}
+      ` : ""}
     </div>
   `, options);
 }

@@ -10,7 +10,13 @@ COMPOSE_FILE="$REPO_ROOT/docker-compose.yml"
 PROJECT_NAME=${STEVE_PROJECT:-steve-dev}
 WEB_PORT=${STEVE_WEB_PORT:-7839}
 OPENCODE_PORT_BASE=${STEVE_OPENCODE_PORT_BASE:-4456}
+BROWSER_VIEWER_PORT_BASE=${STEVE_BROWSER_VIEWER_PORT_BASE:-6180}
+BROWSER_VIEWER_PORT_MAX=${STEVE_BROWSER_VIEWER_PORT_MAX:-6219}
+REMOTE_BROWSER_PORT=${STEVE_REMOTE_BROWSER_PORT:-4782}
 TELEGRAM_API_BASE=${STEVE_TELEGRAM_API_BASE:-https://api.telegram.org}
+REMOTE_BROWSER_PIDFILE="$ENV_DIR/remote-browserd.pid"
+REMOTE_BROWSER_LOG="$ENV_DIR/remote-browserd.log"
+REMOTE_BROWSER_STATEFILE="$ENV_DIR/remote-browser.json"
 
 LOCAL_STEVE_IMAGE=${STEVE_IMAGE:-steve-local}
 LOCAL_OPENCODE_IMAGE=${STEVE_OPENCODE_IMAGE:-steve-opencode-local}
@@ -37,6 +43,8 @@ STEVE_PROJECT=$PROJECT_NAME
 STEVE_VERSION=dev
 STEVE_WEB_PORT=$WEB_PORT
 STEVE_OPENCODE_PORT_BASE=$OPENCODE_PORT_BASE
+STEVE_BROWSER_VIEWER_PORT_BASE=$BROWSER_VIEWER_PORT_BASE
+STEVE_BROWSER_VIEWER_PORT_MAX=$BROWSER_VIEWER_PORT_MAX
 STEVE_TELEGRAM_API_BASE=$TELEGRAM_API_BASE
 STEVE_HOSTNAME=$(detect_hostname)
 STEVE_IMAGE=$LOCAL_STEVE_IMAGE
@@ -67,6 +75,78 @@ show_url() {
         printf 'Dashboard: http://%s.local:%s\n' "$host" "$WEB_PORT"
         printf 'Local:     http://localhost:%s\n' "$WEB_PORT"
     fi
+}
+
+browserd_running() {
+    if curl -sf "http://127.0.0.1:$REMOTE_BROWSER_PORT/health" >/dev/null 2>&1; then
+        return 0
+    fi
+    if [[ -f "$REMOTE_BROWSER_PIDFILE" ]]; then
+        local pid
+        pid=$(cat "$REMOTE_BROWSER_PIDFILE" 2>/dev/null || true)
+        if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+sync_browserd_runtime_files() {
+    mkdir -p "$ENV_DIR"
+    local pid
+    pid=$(pgrep -f "$REPO_ROOT/dist/browser/remote-companion.js" | head -n 1 || true)
+    if [[ -n "$pid" ]]; then
+        printf '%s\n' "$pid" > "$REMOTE_BROWSER_PIDFILE"
+    fi
+    cat > "$REMOTE_BROWSER_STATEFILE" <<EOF
+{
+  "remoteEnabled": true,
+  "remoteBaseUrl": "http://host.docker.internal:$REMOTE_BROWSER_PORT"
+}
+EOF
+}
+
+start_browserd() {
+    ensure_env
+    if browserd_running; then
+        sync_browserd_runtime_files
+        return
+    fi
+    if [[ ! -f "$REPO_ROOT/dist/browser/remote-companion.js" ]]; then
+        pnpm build >/dev/null
+    fi
+    mkdir -p "$ENV_DIR"
+    STEVE_REMOTE_BROWSER_PORT="$REMOTE_BROWSER_PORT" \
+    STEVE_REMOTE_BROWSER_ROOT="$ENV_DIR/remote-browser" \
+    STEVE_REMOTE_BROWSER_CONTAINER_ROOT="/state/remote-browser" \
+    STEVE_REMOTE_BROWSER_PIDFILE="$REMOTE_BROWSER_PIDFILE" \
+    node "$REPO_ROOT/dist/browser/remote-companion.js" >> "$REMOTE_BROWSER_LOG" 2>&1 &
+    local pid=$!
+    printf '%s\n' "$pid" > "$REMOTE_BROWSER_PIDFILE"
+    for _ in $(seq 1 40); do
+        if curl -sf "http://127.0.0.1:$REMOTE_BROWSER_PORT/health" >/dev/null 2>&1; then
+            sync_browserd_runtime_files
+            return
+        fi
+        sleep 0.25
+    done
+    printf 'Warning: remote browser companion did not become ready on port %s\n' "$REMOTE_BROWSER_PORT" >&2
+}
+
+stop_browserd() {
+    local pid
+    if browserd_running; then
+        if [[ -f "$REMOTE_BROWSER_PIDFILE" ]]; then
+            pid=$(cat "$REMOTE_BROWSER_PIDFILE" 2>/dev/null || true)
+        else
+            pid=$(pgrep -f "$REPO_ROOT/dist/browser/remote-companion.js" | head -n 1 || true)
+        fi
+        if [[ -n "$pid" ]]; then
+            kill "$pid" >/dev/null 2>&1 || true
+        fi
+    fi
+    rm -f "$REMOTE_BROWSER_PIDFILE"
+    rm -f "$REMOTE_BROWSER_STATEFILE"
 }
 
 show_setup_url() {
@@ -201,10 +281,25 @@ Commands:
   restore    Restore encrypted backup into local dev data
   update skills [--force]
              Copy bundled skills into every local user workspace
+  browser up Start the local remote browser companion
+  browser down
+             Stop the local remote browser companion
+  browser status
+             Show local remote browser companion status
+  browser logs
+             Follow local remote browser companion logs
   setup-url  Print the one-time setup URL
   url        Show dashboard URL
   help       Show this help message
 EOF
+}
+
+browser_status() {
+    if browserd_running; then
+        printf 'Remote browser companion: running on http://127.0.0.1:%s\n' "$REMOTE_BROWSER_PORT"
+    else
+        printf 'Remote browser companion: stopped\n'
+    fi
 }
 
 update_skills() {
@@ -260,6 +355,30 @@ case "$cmd" in
             printf 'Usage: ./steve update skills [--force]\n' >&2
             exit 1
         fi
+        ;;
+    browser)
+        case "${2:-status}" in
+            up)
+                start_browserd
+                browser_status
+                ;;
+            down)
+                stop_browserd
+                browser_status
+                ;;
+            status)
+                browser_status
+                ;;
+            logs)
+                mkdir -p "$ENV_DIR"
+                touch "$REMOTE_BROWSER_LOG"
+                tail -f "$REMOTE_BROWSER_LOG"
+                ;;
+            *)
+                printf 'Usage: ./steve browser <up|down|status|logs>\n' >&2
+                exit 1
+                ;;
+        esac
         ;;
     setup-url)
         show_setup_url

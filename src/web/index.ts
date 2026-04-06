@@ -14,6 +14,7 @@ import {
   type SessionRecord,
 } from "./auth.js";
 import { clearSetupToken, readSetupToken, writeSetupToken } from "./common.js";
+import { registerBrowserRoutes } from "./browser-routes.js";
 import { registerSecretsRoutes } from "./secrets-routes.js";
 import { registerSetupRoutes } from "./setup-routes.js";
 import { registerUsersRoutes } from "./users-routes.js";
@@ -162,6 +163,7 @@ export function startWebServer(vault: Vault | null, port: number, options: WebSe
   };
 
   registerSetupRoutes(app, deps);
+  registerBrowserRoutes(app, deps);
   registerSecretsRoutes(app, deps);
   registerUsersRoutes(app, deps);
 
