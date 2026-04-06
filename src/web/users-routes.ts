@@ -17,9 +17,12 @@ import {
   removeUserAgent,
   getComposeProject,
 } from "./docker.js";
-import { renderUserAgentPage, renderUserBrowserPage, renderUserIntegrationsPage, renderUserOverview, renderUserSecretEditForm, renderUserSecretNewForm } from "./views.js";
+import { renderUserAgentPage, renderUserBrowserPage, renderUserConnections, renderUserHeader, renderUserIntegrationsPage, renderUserSecretEditForm, renderUserSecretNewForm } from "./views.js";
+import { escapeHtml } from "./components.js";
 import { validateIntegrationSlug, validateTelegramId, validateUserSlug } from "./validate.js";
-import type { WebRouteDeps } from "./types.js";
+import type { AdminFormResult, WebRouteDeps } from "./types.js";
+import type { Context } from "hono";
+import { setFlash } from "./flash.js";
 
 export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
   function getUserOpenCodeConfigPath(name: string): string {
@@ -156,6 +159,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     generateRuntimeConfig(updatedUsers);
     syncUserAgentsRuntime(updatedUsers);
     writeUserManifest(config.dataDir, updatedUsers);
+    setFlash(c, `Member ${validatedName.value} added`);
     return c.redirect(`/users/${validatedName.value}`);
   });
 
@@ -169,6 +173,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     const validatedName = validateUserSlug(c.req.param("name"));
     const telegramId = String(result.body.telegram_id || "").trim();
     if (!validatedName.ok || !validateTelegramId(telegramId)) {
+      setFlash(c, "Telegram chat ID looks invalid", "error");
       return c.redirect(`/users/${c.req.param("name")}`);
     }
 
@@ -177,6 +182,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     vault.set("steve/users", updatedUsers as any);
     refreshRuntimeConfigFromVault(vault);
     writeUserManifest(config.dataDir, updatedUsers);
+    setFlash(c, "Telegram chat linked");
     return c.redirect(`/users/${validatedName.value}`);
   });
 
@@ -189,6 +195,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     const rawChannel = String(result.body.channel || "stable").trim();
     const channel = rawChannel === "beta" || rawChannel === "dev" || rawChannel === "canary" ? rawChannel : "stable";
     writeAttachedBrowserConfig(validatedName.value, { channel });
+    setFlash(c, `Browser attached (${channel})`);
     return c.redirect(`/users/${validatedName.value}/browser`);
   });
 
@@ -199,6 +206,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     const validatedName = validateUserSlug(c.req.param("name"));
     if (!validatedName.ok) return c.redirect("/");
     clearAttachedBrowserConfig(validatedName.value);
+    setFlash(c, "Browser detached");
     return c.redirect(`/users/${validatedName.value}/browser`);
   });
 
@@ -234,6 +242,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     }
 
     setUserAppSecret(vault, validatedName.value, validatedIntegration.value, fields);
+    setFlash(c, `${validatedIntegration.value} saved`);
     return c.redirect(`/users/${validatedName.value}/integrations`);
   });
 
@@ -286,6 +295,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     const existingValue = typeof current.value === "object" ? current.value as Record<string, unknown> : current.value;
     const nextValue = mergeFieldsWithExistingValue(existingValue, fields);
     setUserAppSecret(vault, validatedName.value, validatedIntegration.value, nextValue as Record<string, string>);
+    setFlash(c, `${validatedIntegration.value} updated`);
     return c.redirect(`/users/${validatedName.value}/integrations`);
   });
 
@@ -301,8 +311,22 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     if (!validatedName.ok || !validatedIntegration.ok) return c.redirect("/");
 
     deleteUserAppSecret(vault, validatedName.value, validatedIntegration.value);
+    setFlash(c, `${validatedIntegration.value} removed`);
     return c.redirect(`/users/${validatedName.value}/integrations`);
   });
+
+  // Returns the up-to-date user header HTML when the request came from htmx,
+  // so start/stop/restart buttons swap their own row in place. Falls back to
+  // a normal redirect for non-htmx (e.g. JS disabled).
+  async function respondAfterAgentMutation(c: Context, result: AdminFormResult, name: string): Promise<Response> {
+    if (c.req.header("HX-Request")) {
+      const state = await getUserPageState(name);
+      if (state) {
+        return c.html(renderUserHeader(name, state.ocStatus, state.agentEnabled, result.session.csrfToken));
+      }
+    }
+    return c.redirect(`/users/${name}`);
+  }
 
   app.post("/users/:name/start", async (c) => {
     const result = await deps.requireAdminForm(c);
@@ -312,6 +336,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     if (!validatedName.ok) return c.redirect("/");
     const name = validatedName.value;
 
+    let started = true;
     try {
       setupUserWorkspace(name);
       const nextState = upsertUserAgentRecord(readUserAgentState(), name, { enabled: true });
@@ -319,10 +344,12 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
       writeUserAgentsCompose(nextState);
       startUserAgent(deps.composeProject, name);
     } catch (err) {
+      started = false;
       console.error("Failed to start agent:", err instanceof Error ? err.message : err);
     }
 
-    return c.redirect(`/users/${name}`);
+    setFlash(c, started ? `${name}'s agent started` : "Failed to start agent", started ? "ok" : "error");
+    return respondAfterAgentMutation(c, result, name);
   });
 
   app.post("/users/:name/stop", async (c) => {
@@ -331,13 +358,15 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
 
     const validatedName = validateUserSlug(c.req.param("name"));
     if (!validatedName.ok) return c.redirect("/");
+    const name = validatedName.value;
     try {
-      const nextState = upsertUserAgentRecord(readUserAgentState(), validatedName.value, { enabled: false });
+      const nextState = upsertUserAgentRecord(readUserAgentState(), name, { enabled: false });
       writeUserAgentState(nextState);
       writeUserAgentsCompose(nextState);
-      removeUserAgent(deps.composeProject, validatedName.value);
+      removeUserAgent(deps.composeProject, name);
     } catch {}
-    return c.redirect(`/users/${validatedName.value}`);
+    setFlash(c, `${name}'s agent stopped`);
+    return respondAfterAgentMutation(c, result, name);
   });
 
   app.post("/users/:name/restart", async (c) => {
@@ -346,10 +375,12 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
 
     const validatedName = validateUserSlug(c.req.param("name"));
     if (!validatedName.ok) return c.redirect("/");
+    const name = validatedName.value;
     try {
-      restartUserAgent(deps.composeProject, validatedName.value);
+      restartUserAgent(deps.composeProject, name);
     } catch {}
-    return c.redirect(`/users/${validatedName.value}`);
+    setFlash(c, `${name}'s agent restarted`);
+    return respondAfterAgentMutation(c, result, name);
   });
 
   app.get("/users/:name", async (c) => {
@@ -361,7 +392,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     const name = validatedName.value;
     const state = await getUserPageState(name);
     if (!state) return c.redirect("/");
-    return c.html(renderUserOverview(name, state.ocStatus, session.csrfToken, state));
+    return c.html(renderUserConnections(name, state.ocStatus, session.csrfToken, state));
   });
 
   app.get("/users/:name/integrations", async (c) => {
@@ -453,6 +484,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
         startUserAgent(getComposeProject(), validatedName.value);
       }
     }
+    setFlash(c, `Model set to ${providerId}/${modelId}`);
     return c.redirect(`/users/${validatedName.value}/agent`);
   });
 
@@ -460,12 +492,16 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     const session = deps.requireAdminApi(c);
     if (session instanceof Response) return session;
 
+    // Returns HTML-escaped log text intended to be swapped into the agent
+    // page's `<pre id="logs">` via htmx innerHTML swap. Plain text would risk
+    // any `<` in the logs being parsed as a tag.
     const validatedName = validateUserSlug(c.req.param("name"));
-    if (!validatedName.ok) return c.json({ logs: "Invalid user" }, 400);
+    if (!validatedName.ok) return c.html("Invalid user", 400);
     try {
-      return c.json({ logs: getUserAgentLogs(deps.composeProject, validatedName.value) || "No logs" });
+      const logs = getUserAgentLogs(deps.composeProject, validatedName.value) || "No logs";
+      return c.html(escapeHtml(logs));
     } catch (err) {
-      return c.json({ logs: err instanceof Error ? err.message : "Could not fetch logs" });
+      return c.html(escapeHtml(err instanceof Error ? err.message : "Could not fetch logs"));
     }
   });
 
