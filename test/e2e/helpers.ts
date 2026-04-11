@@ -28,6 +28,8 @@ export function createTestEnv(cwd: string, name: string): TestEnv {
   const webPort = basePort;
   const telegramPort = basePort + 100;
   const opencodePortBase = basePort + 200;
+  const browserViewerPortBase = basePort + 300;
+  const browserViewerPortMax = browserViewerPortBase + 19;
 
   return {
     project: `steve-${suffix}`,
@@ -44,6 +46,8 @@ export function createTestEnv(cwd: string, name: string): TestEnv {
       STEVE_PROJECT: `steve-${suffix}`,
       STEVE_WEB_PORT: String(webPort),
       STEVE_OPENCODE_PORT_BASE: String(opencodePortBase),
+      STEVE_BROWSER_VIEWER_PORT_BASE: String(browserViewerPortBase),
+      STEVE_BROWSER_VIEWER_PORT_MAX: String(browserViewerPortMax),
       STEVE_TELEGRAM_API_BASE: `http://host.docker.internal:${telegramPort}`,
       STEVE_BACKUP_PASSWORD: "steve-backup-password",
       STEVE_LOCAL_ENV_DIR: localEnvDir,

@@ -4,6 +4,8 @@ import { join, resolve, normalize, basename, dirname } from "node:path";
 import { execFile } from "node:child_process";
 import { z } from "zod";
 import { appendUserActivity } from "../activity.js";
+import { getBrowserService } from "../browser/index.js";
+import type { BrowserTarget } from "../browser/types.js";
 import type { Vault } from "../vault/index.js";
 import type { Channel } from "../channels/index.js";
 import { config, getBaseUrl, getSystemTimezone } from "../config.js";
@@ -61,6 +63,7 @@ export type McpServerFactory = () => McpServer;
 export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null): McpServerFactory {
   const { channel, projectRoot, dataDir } = mcpConfig;
   const projectScripts = discoverProjectScripts(projectRoot);
+  const browser = getBrowserService();
 
   return () => {
   const server = new McpServer({
@@ -106,6 +109,93 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
       content: [{ type: "text", text: `Message sent to ${userName}` }],
     };
   });
+
+  server.registerTool("send_file", {
+    description:
+      "Send a local file to a user, such as a browser screenshot or downloaded document.",
+    inputSchema: {
+      userName: z.string().describe("The name of the user to send the file to"),
+      filePath: z.string().describe("Absolute local path to the file"),
+      caption: z.string().optional().describe("Optional caption to include with the file"),
+    },
+  }, async ({ userName, filePath, caption }) => {
+    const result = await channel.sendFile(userName, filePath, caption);
+    if (!result.ok) {
+      return {
+        content: [{ type: "text", text: `Error: ${result.error || "unknown error"}` }],
+        isError: true,
+      };
+    }
+    return { content: [{ type: "text", text: `File sent to ${userName}` }] };
+  });
+
+  const browserTargetSchema = z.enum(["container", "remote"]).optional().describe("Optional browser target. Defaults to Steve's configured browser target.");
+
+  server.registerTool("browser_open", {
+    description: "Open a URL in the current user's Steve browser profile. Returns a compact page snapshot. `viewerUrl` is only present for the container browser; attached remote Chrome does not return one.",
+    inputSchema: {
+      userName: z.string().describe("The current user name"),
+      url: z.string().describe("The URL to open"),
+      target: browserTargetSchema,
+    },
+  }, async ({ userName, url, target }) => ({ content: [{ type: "text", text: JSON.stringify(await browser.open({ userName, url, target: target as BrowserTarget | undefined })) }] }));
+
+  server.registerTool("browser_snapshot", {
+    description: "Get a compact structured snapshot of the current browser page, including page text and interactive elements. `viewerUrl` is only present for the container browser; attached remote Chrome does not return one.",
+    inputSchema: {
+      userName: z.string().describe("The current user name"),
+      target: browserTargetSchema,
+    },
+  }, async ({ userName, target }) => ({ content: [{ type: "text", text: JSON.stringify(await browser.snapshot({ userName, target: target as BrowserTarget | undefined })) }] }));
+
+  server.registerTool("browser_click", {
+    description: "Click an interactive browser element by ref from the latest browser snapshot.",
+    inputSchema: {
+      userName: z.string().describe("The current user name"),
+      ref: z.string().describe("Element ref from browser_snapshot"),
+      target: browserTargetSchema,
+    },
+  }, async ({ userName, ref, target }) => ({ content: [{ type: "text", text: JSON.stringify(await browser.click({ userName, ref, target: target as BrowserTarget | undefined })) }] }));
+
+  server.registerTool("browser_type", {
+    description: "Type into an interactive browser element by ref from the latest browser snapshot.",
+    inputSchema: {
+      userName: z.string().describe("The current user name"),
+      ref: z.string().describe("Element ref from browser_snapshot"),
+      text: z.string().describe("Text to type"),
+      submit: z.boolean().optional().describe("Press Enter after typing"),
+      target: browserTargetSchema,
+    },
+  }, async ({ userName, ref, text, submit, target }) => ({ content: [{ type: "text", text: JSON.stringify(await browser.type({ userName, ref, text, submit, target: target as BrowserTarget | undefined })) }] }));
+
+  server.registerTool("browser_wait", {
+    description: "Wait for text or an element ref to become ready in the current browser page.",
+    inputSchema: {
+      userName: z.string().describe("The current user name"),
+      text: z.string().optional().describe("Visible text to wait for"),
+      ref: z.string().optional().describe("Element ref to wait for"),
+      timeoutMs: z.number().optional().describe("Optional timeout in milliseconds"),
+      target: browserTargetSchema,
+    },
+  }, async ({ userName, text, ref, timeoutMs, target }) => ({ content: [{ type: "text", text: JSON.stringify(await browser.wait({ userName, text, ref, timeoutMs, target: target as BrowserTarget | undefined })) }] }));
+
+  server.registerTool("browser_screenshot", {
+    description: "Take a screenshot of the current browser page. Returns the saved file path and, for the container browser only, a viewer URL.",
+    inputSchema: {
+      userName: z.string().describe("The current user name"),
+      fullPage: z.boolean().optional().describe("Capture the full page instead of only the viewport"),
+      target: browserTargetSchema,
+    },
+  }, async ({ userName, fullPage, target }) => ({ content: [{ type: "text", text: JSON.stringify(await browser.screenshot({ userName, fullPage, target: target as BrowserTarget | undefined })) }] }));
+
+  server.registerTool("browser_download", {
+    description: "Click an element by ref and wait for a file download. Returns the saved download path and, for the container browser only, a viewer URL.",
+    inputSchema: {
+      userName: z.string().describe("The current user name"),
+      ref: z.string().describe("Element ref from browser_snapshot"),
+      target: browserTargetSchema,
+    },
+  }, async ({ userName, ref, target }) => ({ content: [{ type: "text", text: JSON.stringify(await browser.download({ userName, ref, target: target as BrowserTarget | undefined })) }] }));
 
   server.registerTool("session_status", {
     description:

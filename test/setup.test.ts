@@ -69,6 +69,7 @@ async function run() {
 
   const { runSetup } = await import("../src/setup.js");
   const { readUserAgentState, syncUserAgentsRuntime, upsertUserAgentRecord, writeUserAgentState } = await import("../src/agents.js");
+  const { getOrAllocateBrowserState } = await import("../src/browser/state.js");
   const { renderJobsPage } = await import("../src/web/views.js");
   const { getVisibleScheduledEntryCount } = await import("../src/scheduler.js");
   const result = await runSetup();
@@ -234,6 +235,17 @@ async function run() {
     assert.match(compose, /3457:3456/);
   });
 
+  test("browser state allocates stable per-user viewer ports", () => {
+    const first = getOrAllocateBrowserState("testuser");
+    const second = getOrAllocateBrowserState("testuser");
+    const other = getOrAllocateBrowserState("friend");
+    assert.deepEqual(second, first);
+    assert.equal(first.viewerPort, 6080);
+    assert.equal(other.viewerPort, 6081);
+    assert.equal(first.display, 90);
+    assert.equal(other.display, 91);
+  });
+
   test("agent instructions pin the current user name", () => {
     const agent = readFileSync(join(testDir, "users", "testuser", ".opencode", "agents", "steve.md"), "utf-8");
     assert.match(agent, /Current Steve user: testuser/);
@@ -336,8 +348,8 @@ async function run() {
   });
 
   const setupCompleteHtml = await goodSetup.text();
-  test("web setup: completion sends the user to connect Telegram on their user page", () => {
-    assert.match(setupCompleteHtml, /Connect Telegram/);
+  test("web setup: completion sends the user to connect Telegram on their member page", () => {
+    assert.match(setupCompleteHtml, /connect Telegram/i);
     assert.match(setupCompleteHtml, /\/users\/robert/);
   });
 
@@ -376,8 +388,8 @@ async function run() {
     assert.equal(settingsPage.status, 200);
     assert.match(settingsHtml, /Timezone/);
     assert.match(settingsHtml, /Europe\/Stockholm/);
-    assert.match(settingsHtml, /Telegram Bot/);
-    assert.match(settingsHtml, />Save</);
+    assert.match(settingsHtml, /Telegram bot/i);
+    assert.match(settingsHtml, /Save/);
   });
 
   const updateTimezone = await app.request("/settings/timezone", {
@@ -456,12 +468,48 @@ async function run() {
   });
   const friendPageHtml = await friendPage.text();
 
-  test("web users: overview page focuses on connection and activity", () => {
+  test("web users: connections tab focuses on telegram link and activity", () => {
     assert.equal(friendPage.status, 200);
     assert.match(friendPageHtml, /Connections/);
-    assert.match(friendPageHtml, /Connect Telegram/);
-    assert.match(friendPageHtml, /Recent Activity/);
+    // Telegram form is present (button reads "Connect" or "Update")
+    assert.match(friendPageHtml, /name="telegram_id"/);
+    // Tabs link to the other member sub-pages
+    assert.match(friendPageHtml, /href="\/users\/friend\/browser"/);
     assert.match(friendPageHtml, /href="\/users\/friend\/integrations"/);
+    // Activity section is here
+    assert.match(friendPageHtml, /Recent activity/i);
+  });
+
+  const friendBrowserPage = await app.request("/users/friend/browser", {
+    headers: { cookie: adminCookie || "" },
+  });
+  const friendBrowserPageHtml = await friendBrowserPage.text();
+
+  test("web users: browser page has attached browser setup guidance", () => {
+    assert.equal(friendBrowserPage.status, 200);
+    assert.match(friendBrowserPageHtml, /Attached browser/i);
+    assert.match(friendBrowserPageHtml, /Use attached Chrome only when a site needs/);
+    assert.match(friendBrowserPageHtml, /Remote browser companion/);
+    assert.match(friendBrowserPageHtml, /Not configured/);
+    assert.match(friendBrowserPageHtml, /Attach Local Chrome/);
+    assert.match(friendBrowserPageHtml, /Start the companion first/);
+  });
+
+  const attachBrowser = await app.request("/users/friend/browser/attach", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      cookie: adminCookie || "",
+    },
+    body: new URLSearchParams({ _csrf: adminCsrf || "", channel: "beta" }),
+  });
+
+  test("web users: attached browser can be configured per user", () => {
+    assert.equal(attachBrowser.status, 302);
+    assert.equal(attachBrowser.headers.get("location"), "/users/friend/browser");
+    const attached = JSON.parse(readFileSync(join(testDir, "users", "friend", ".browser", "attached-browser.json"), "utf-8"));
+    assert.equal(attached.mode, "local_chrome");
+    assert.equal(attached.channel, "beta");
   });
 
   saveUserJobs("robert", [{
@@ -499,16 +547,22 @@ async function run() {
   });
 
   test("web jobs: cron times render in the job timezone", () => {
-    const html = renderJobsPage([{
-      kind: "job",
-      userName: "robert",
-      id: "stockholm-check",
-      name: "Stockholm Check",
-      cron: "0 20 * * *",
-      timezone: "Europe/Stockholm",
-      lastRunAt: "2026-03-29T18:00:00.000Z",
-      nextRunAt: "2026-03-30T18:00:00.000Z",
-    }], "csrf-token");
+    const html = renderJobsPage({
+      entries: [{
+        kind: "job",
+        userName: "robert",
+        id: "stockholm-check",
+        name: "Stockholm Check",
+        cron: "0 20 * * *",
+        timezone: "Europe/Stockholm",
+        lastRunAt: "2026-03-29T18:00:00.000Z",
+        nextRunAt: "2026-03-30T18:00:00.000Z",
+      }],
+      csrfToken: "csrf-token",
+      filterStatus: "all",
+      filterMember: "all",
+      memberNames: ["robert"],
+    });
 
     assert.match(html, /2026-03-29, 20:00/);
     assert.match(html, /2026-03-30, 20:00/);
@@ -633,13 +687,13 @@ async function run() {
   test("web users: integrations live on their own subpage", () => {
     assert.equal(integrationsPage.status, 200);
     assert.match(integrationsHtml, /<h2 class="text-sm font-medium text-white">Integrations<\/h2>/);
-    assert.match(integrationsHtml, /Add Integration/);
-    assert.match(integrationsHtml, /API keys and credentials Steve needs to connect to third-party services for this user/);
+    assert.match(integrationsHtml, /Add integration/i);
+    assert.match(integrationsHtml, /API keys and credentials Steve uses to connect to third-party services for this member/);
   });
 
   test("web users: agent page includes model controls", () => {
     assert.equal(agentPage.status, 200);
-    assert.match(agentPageHtml, /The model Steve uses when responding to Telegram messages and running background tasks for this user/);
+    assert.match(agentPageHtml, /The model Steve uses when responding to Telegram messages and running background tasks for this member/);
     assert.match(agentPageHtml, /openai\/gpt-5\.4-mini/);
     assert.match(agentPageHtml, /No models available yet\. Start the agent first/);
   });
@@ -651,7 +705,8 @@ async function run() {
 
   test("web users: user secret form lives under the user page", () => {
     assert.equal(newSecretPage.status, 200);
-    assert.match(newSecretHtml, /Add Integration for friend/);
+    assert.match(newSecretHtml, /Add integration/i);
+    assert.match(newSecretHtml, /for friend/);
   });
 
   const createUserSecret = await app.request("/users/friend/integrations", {

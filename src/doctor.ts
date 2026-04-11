@@ -46,7 +46,7 @@ async function main() {
 
   // Users directory
   const usersOk = existsSync(config.usersDir);
-  checks.push({ name: "Users directory", ok: usersOk, detail: usersOk ? config.usersDir : "not found — run ./steve up first" });
+  checks.push({ name: "Users directory", ok: usersOk, detail: usersOk ? config.usersDir : "not found — run steve up first" });
 
   // OpenCode
   const ocOk = await checkOpenCode();

@@ -28,7 +28,7 @@ async function checkOpenCode(userName: string): Promise<{ status: "ok" | "error"
   const url = `http://opencode-${toUserSlug(userName)}:3456`;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
-    return res.ok ? { status: "ok" } : { status: "error", message: `HTTP ${res.status}` };
+    return res.status < 500 ? { status: "ok" } : { status: "error", message: `HTTP ${res.status}` };
   } catch (err) {
     return { status: "error", message: err instanceof Error ? err.message : "unreachable" };
   }

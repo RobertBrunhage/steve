@@ -18,6 +18,7 @@ import { hasKeyfile } from "./vault/index.js";
 import { getTelegramBotToken } from "./secrets.js";
 import { getAllowedTelegramIds, normalizeUsers, type UsersMap, writeUserManifest } from "./users.js";
 import type { Vault } from "./vault/index.js";
+import { getBrowserService } from "./browser/index.js";
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -125,6 +126,7 @@ async function startBot(botToken: string, brain: Brain) {
 
       const shutdown = () => {
         p.outro("Steve stopped");
+        void getBrowserService().stopAll().catch(() => {});
         brain.stopAll();
         bot.stop();
         process.exit(0);

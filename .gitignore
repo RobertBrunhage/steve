@@ -1,6 +1,7 @@
 node_modules/
 dist/
 data/
+.steve-dev/
 .env
 opencode.json
 docker-compose.dev.yml
