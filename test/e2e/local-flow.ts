@@ -20,10 +20,10 @@ async function main() {
   const jar = new CookieJar();
 
   try {
-    await runCommand("./steve", ["up"], { cwd, env: testEnv.env, timeoutMs: 600000 });
+    await runCommand("./kellix", ["up"], { cwd, env: testEnv.env, timeoutMs: 600000 });
     await waitFor(`http://127.0.0.1:${testEnv.webPort}/setup`);
 
-    const setupUrlResult = await runCommand("./steve", ["setup-url"], {
+    const setupUrlResult = await runCommand("./kellix", ["setup-url"], {
       cwd,
       env: testEnv.env,
       capture: true,
@@ -31,7 +31,7 @@ async function main() {
     });
     assert.equal(setupUrlResult.code, 0);
     const setupUrlMatch = setupUrlResult.stdout.match(/http:\/\/[^\s]+/);
-    assert.ok(setupUrlMatch, "Expected setup URL in ./steve setup-url output");
+    assert.ok(setupUrlMatch, "Expected setup URL in ./kellix setup-url output");
     const setupUrl = new URL(setupUrlMatch[0]);
     setupUrl.hostname = "127.0.0.1";
 

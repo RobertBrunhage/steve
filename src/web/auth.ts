@@ -1,11 +1,21 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import type { Context } from "hono";
+import type { Vault } from "../vault/index.js";
+import { ADMIN_AUTH_KEY, ADMIN_SESSION_COOKIE, BOOTSTRAP_SESSION_COOKIE, LEGACY_ADMIN_AUTH_KEY } from "../brand.js";
 
-export const ADMIN_AUTH_KEY = "steve/admin_auth";
-export const ADMIN_SESSION_COOKIE = "steve_session";
-export const BOOTSTRAP_SESSION_COOKIE = "steve_bootstrap";
+export { ADMIN_AUTH_KEY, ADMIN_SESSION_COOKIE, BOOTSTRAP_SESSION_COOKIE, LEGACY_ADMIN_AUTH_KEY };
 
 const PASSWORD_KEY_LENGTH = 32;
+
+export function migrateLegacyAdminAuthKey(vault: Vault): void {
+  const legacyRecord = vault.get(LEGACY_ADMIN_AUTH_KEY);
+  if (!legacyRecord) return;
+
+  if (!vault.has(ADMIN_AUTH_KEY)) {
+    vault.set(ADMIN_AUTH_KEY, legacyRecord as any);
+  }
+  vault.delete(LEGACY_ADMIN_AUTH_KEY);
+}
 
 export interface PasswordHashRecord {
   salt: string;

@@ -3,29 +3,32 @@ import { writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as p from "@clack/prompts";
+import { APP_NAME, APP_SLUG, readEnv } from "./brand.js";
 import { encrypt } from "./vault/crypto.js";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const projectName = process.env.STEVE_PROJECT || "steve";
+const projectName = readEnv("KELLIX_PROJECT", "STEVE_PROJECT") || APP_SLUG;
 
 function getBackupDisplayPath(outputName: string): string {
-  if (process.env.STEVE_BACKUP_OUTPUT_PATH) {
-    return process.env.STEVE_BACKUP_OUTPUT_PATH;
+  const explicitPath = readEnv("KELLIX_BACKUP_OUTPUT_PATH", "STEVE_BACKUP_OUTPUT_PATH");
+  if (explicitPath) {
+    return explicitPath;
   }
-  if (process.env.STEVE_BACKUP_OUTPUT_DIR) {
-    return resolve(process.env.STEVE_BACKUP_OUTPUT_DIR, outputName);
+  const explicitDir = readEnv("KELLIX_BACKUP_OUTPUT_DIR", "STEVE_BACKUP_OUTPUT_DIR");
+  if (explicitDir) {
+    return resolve(explicitDir, outputName);
   }
   return resolve(outputName);
 }
 
 function getVolumeName(name: "data" | "vault") {
-  return `${projectName}_steve-${name}`;
+  return `${projectName}_${APP_SLUG}-${name}`;
 }
 
 async function main() {
-  p.intro("Steve — Backup");
+  p.intro(`${APP_NAME} — Backup`);
 
-  const pw = process.env.STEVE_BACKUP_PASSWORD || await p.password({ message: "Backup password" });
+  const pw = readEnv("KELLIX_BACKUP_PASSWORD", "STEVE_BACKUP_PASSWORD") || await p.password({ message: "Backup password" });
   if (p.isCancel(pw)) { p.cancel("Cancelled."); process.exit(0); }
 
   const s = p.spinner();
@@ -57,7 +60,7 @@ async function main() {
 
     const filenameArg = process.argv[2];
     const date = new Date().toISOString().split("T")[0];
-    const filename = filenameArg || `steve-backup-${date}.enc`;
+    const filename = filenameArg || `${APP_SLUG}-backup-${date}.enc`;
     writeFileSync(filename, encrypted);
     const displayPath = getBackupDisplayPath(filename);
 

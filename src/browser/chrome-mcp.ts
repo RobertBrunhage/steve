@@ -109,7 +109,7 @@ export class ChromeMcpBrowserSession {
       } as Record<string, string>,
       stderr: "pipe",
     });
-    const client = new Client({ name: "steve-remote-browser", version: "1.0.0" }, { capabilities: {} });
+    const client = new Client({ name: "kellix-remote-browser", version: "1.0.0" }, { capabilities: {} });
     await client.connect(transport);
     this.transport = transport;
     this.client = client;

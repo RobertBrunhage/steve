@@ -1,4 +1,5 @@
 import * as p from "@clack/prompts";
+import { APP_NAME } from "./brand.js";
 import { listEnabledUserAgents, readUserAgentState } from "./agents.js";
 import { config, setRuntimeConfig, getBaseUrl } from "./config.js";
 import { runSetup } from "./setup.js";
@@ -16,7 +17,7 @@ import { TelegramChannel } from "./channels/telegram.js";
 import { registerChannel } from "./channels/index.js";
 import { hasKeyfile } from "./vault/index.js";
 import { getTelegramBotToken } from "./secrets.js";
-import { getAllowedTelegramIds, normalizeUsers, type UsersMap, writeUserManifest } from "./users.js";
+import { getAllowedTelegramIds, normalizeUsers, readUsersFromVault, type UsersMap, writeUserManifest } from "./users.js";
 import type { Vault } from "./vault/index.js";
 import { getBrowserService } from "./browser/index.js";
 
@@ -56,10 +57,10 @@ async function waitForConfiguration(vault: Vault, botToken: string, users: Users
   }
 
   p.log.warn("Open the one-time setup link to finish setup");
-  await waitFor(() => !!getTelegramBotToken(vault) && vault.has("steve/users"));
+  await waitFor(() => !!getTelegramBotToken(vault) && Object.keys(readUsersFromVault(vault)).length > 0);
 
   const nextBotToken = getTelegramBotToken(vault);
-  const nextUsers = normalizeUsers(vault.get("steve/users")).users;
+  const nextUsers = readUsersFromVault(vault);
   if (!nextBotToken || Object.keys(nextUsers).length === 0) {
     p.log.error("Configuration completed but runtime values were missing");
     process.exit(1);
@@ -81,8 +82,8 @@ async function startBot(botToken: string, brain: Brain) {
     registerCommands(bot, brain);
     registerMessageHandler(bot, brain);
 
-    await bot.api.setMyCommands([
-      { command: "start", description: "Start Steve" },
+      await bot.api.setMyCommands([
+      { command: "start", description: "Start Kellix" },
       { command: "today", description: "What's on today?" },
       { command: "schedule", description: "View or update training schedule" },
       { command: "history", description: "View recent training history" },
@@ -125,7 +126,7 @@ async function startBot(botToken: string, brain: Brain) {
       });
 
       const shutdown = () => {
-        p.outro("Steve stopped");
+        p.outro(`${APP_NAME} stopped`);
         void getBrowserService().stopAll().catch(() => {});
         brain.stopAll();
         bot.stop();
@@ -148,7 +149,7 @@ async function startBot(botToken: string, brain: Brain) {
 async function main() {
   let { vault, botToken, users } = await runSetup();
 
-  p.intro("Steve");
+  p.intro(APP_NAME);
 
   // Always start web UI (dashboard or setup wizard)
   const web = startWebServer(vault, config.webPort);

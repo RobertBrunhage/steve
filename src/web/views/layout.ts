@@ -72,7 +72,7 @@ export function flash(message: string, type: "success" | "error" = "success"): s
 
 export function renderActivityItems(items: ActivityEntry[], opts: { showMember?: boolean } = {}): string {
   if (items.length === 0) {
-    return `<p class="text-sm text-zinc-500">Nothing yet. Activity will show up here once Steve starts handling messages or tasks.</p>`;
+    return `<p class="text-sm text-zinc-500">Nothing yet. Activity will show up here once Kellix starts handling messages or tasks.</p>`;
   }
 
   return items.map((item) => {
@@ -110,7 +110,7 @@ export function nav(csrfToken: string, current: NavKey = null): string {
   return `
   <nav class="flex items-center justify-between gap-3 mb-8 border-b border-border pb-3">
     <div class="flex items-center gap-3 sm:gap-6 min-w-0">
-      <a href="/" class="text-sm font-semibold text-white tracking-wide flex-shrink-0">Steve</a>
+      <a href="/" class="text-sm font-semibold text-white tracking-wide flex-shrink-0">Kellix</a>
       <div class="flex gap-3 sm:gap-5">
         ${link("/", "Members", "home")}
         ${link("/jobs", "Tasks", "tasks")}
@@ -147,7 +147,7 @@ export const layout = (title: string, body: string, options: LayoutOptions = {})
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Steve - ${title}</title>
+  <title>Kellix - ${title}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {

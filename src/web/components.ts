@@ -1,4 +1,4 @@
-// Shared UI primitives for Steve's web admin.
+// Shared UI primitives for Kellix's web admin.
 //
 // These are plain functions that return HTML strings — no build step, no
 // virtual DOM. They exist so pages stop hand-rolling Tailwind classes and the

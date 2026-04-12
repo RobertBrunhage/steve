@@ -62,7 +62,7 @@ Write natural-language instructions for the agent. Include:
 
 ## Script Manifest In Frontmatter
 
-Use the `scripts` frontmatter block in `SKILL.md` to declare exactly which vault entries a script needs. Steve injects only the declared fields, which keeps secrets scoped tightly and improves output redaction.
+Use the `scripts` frontmatter block in `SKILL.md` to declare exactly which vault entries a script needs. Kellix injects only the declared fields, which keeps secrets scoped tightly and improves output redaction.
 
 Example:
 
@@ -83,7 +83,7 @@ scripts:
 
 ### Rules
 
-- Use `{user}` or `{userName}` in vault keys and Steve substitutes the current user slug.
+- Use `{user}` or `{userName}` in vault keys and Kellix substitutes the current user slug.
 - If `fields` is omitted, all fields in that vault entry are injected.
 - Keep manifests narrow. Only request the secrets a script actually needs.
 - Keep the machine-readable manifest in the same `SKILL.md` file as the instructions.
@@ -97,11 +97,11 @@ If your skill creates user files (logs, profiles, etc.), add templates in a `tem
 
 Skills and credentials are per-user by default.
 
-Per-user credentials are stored in the encrypted vault and managed from each user's page in the web UI. When a script runs via `run_script`, Steve injects only the environment variables declared in `SKILL.md` frontmatter.
+Per-user credentials are stored in the encrypted vault and managed from each user's page in the web UI. When a script runs via `run_script`, Kellix injects only the environment variables declared in `SKILL.md` frontmatter.
 
-The app secret key format is `users/{userName}/{skill-name}/app` with a JSON object value. Each field becomes `STEVE_CRED_{FIELD_NAME_UPPERCASED}`.
+The app secret key format is `users/{userName}/{skill-name}/app` with a JSON object value. Each field becomes `KELLIX_CRED_{FIELD_NAME_UPPERCASED}`.
 
-Example: vault key `users/robert/weather/app` with value `{"api_key": "abc123"}` becomes `STEVE_CRED_API_KEY=abc123` in the script's environment.
+Example: vault key `users/robert/weather/app` with value `{"api_key": "abc123"}` becomes `KELLIX_CRED_API_KEY=abc123` in the script's environment.
 
 ### Setup flow
 
@@ -114,7 +114,7 @@ When credentials are missing:
 
 ```bash
 # Credentials are available as env vars - no need to fetch them
-API_KEY="${STEVE_CRED_API_KEY:?Missing STEVE_CRED_API_KEY}"
+API_KEY="${KELLIX_CRED_API_KEY:?Missing KELLIX_CRED_API_KEY}"
 ```
 
 ### Saving credentials from scripts
@@ -125,7 +125,7 @@ If your script produces credentials that need to be stored (e.g., OAuth tokens),
 {"status": "ready", "save_to_vault": {"key": "users/{userName}/skill-name/tokens", "value": {"token": "..."}}}
 ```
 
-Steve saves it to the vault automatically and **strips it before the AI sees the output**. The AI only receives `{"status": "ready"}`. NEVER output raw credentials in any other field.
+Kellix saves it to the vault automatically and **strips it before the AI sees the output**. The AI only receives `{"status": "ready"}`. NEVER output raw credentials in any other field.
 
 ## OAuth Integrations
 
@@ -143,7 +143,7 @@ requires:
 ---
 
 ## Setup
-If the fetch script fails with "Missing STEVE_CRED":
+If the fetch script fails with "Missing KELLIX_CRED":
 1. Call `get_secret_url` with the current `userName` to get the user's integrations page
 2. Tell the user to add their API key under the Weather integration on their user page
 3. Once they confirm, retry

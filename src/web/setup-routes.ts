@@ -3,7 +3,7 @@ import { config, getDefaultTimezone, getTelegramApiBase, isValidTimezone, writeS
 import { getTelegramBotToken, setTelegramBotToken } from "../secrets.js";
 import { Vault, initializeVault } from "../vault/index.js";
 import { getHealth } from "../health.js";
-import { ensureUser, normalizeUsers, type UsersMap } from "../users.js";
+import { ensureUser, readUsersFromVault, type UsersMap, writeUsersToVault } from "../users.js";
 import { ADMIN_AUTH_KEY, hashPassword, verifyPassword } from "./auth.js";
 import { renderLogin, renderSetupComplete, renderSetupLocked } from "./views.js";
 import { validateUserSlug } from "./validate.js";
@@ -16,7 +16,7 @@ export function registerSetupRoutes(app: Hono, deps: WebRouteDeps) {
     const vault = deps.getVault();
     if (!vault) return false;
     const hasBotToken = !!getTelegramBotToken(vault);
-    const hasUsers = Object.keys(normalizeUsers(vault.get("steve/users")).users).length > 0;
+    const hasUsers = Object.keys(readUsersFromVault(vault)).length > 0;
     return hasBotToken && hasUsers;
   }
 
@@ -101,7 +101,7 @@ export function registerSetupRoutes(app: Hono, deps: WebRouteDeps) {
         return c.html(deps.buildSetupView(session.csrfToken, "Vault not available for restored setup", authOnly), 500);
       }
       botToken = getTelegramBotToken(vault) || "";
-      users = normalizeUsers(vault.get("steve/users")).users;
+      users = readUsersFromVault(vault);
     } else {
       botToken = String(body.bot_token || "").trim();
       if (!botToken) return c.html(deps.buildSetupView(session.csrfToken, "Bot token is required", authOnly, timezone), 400);
@@ -146,7 +146,7 @@ export function registerSetupRoutes(app: Hono, deps: WebRouteDeps) {
 
     vault.set(ADMIN_AUTH_KEY, hashPassword(password) as any);
     setTelegramBotToken(vault, botToken);
-    vault.set("steve/users", users as any);
+    writeUsersToVault(vault, users);
     if (!authOnly) {
       writeSystemSettings({ timezone });
     }

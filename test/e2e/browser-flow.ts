@@ -115,10 +115,10 @@ async function main() {
   const jar = new CookieJar();
 
   try {
-    await runCommand("./steve", ["up"], { cwd, env: testEnv.env, timeoutMs: 600000 });
+    await runCommand("./kellix", ["up"], { cwd, env: testEnv.env, timeoutMs: 600000 });
     await waitFor(`http://127.0.0.1:${testEnv.webPort}/setup`);
 
-    const setupUrlResult = await runCommand("./steve", ["setup-url"], {
+    const setupUrlResult = await runCommand("./kellix", ["setup-url"], {
       cwd,
       env: testEnv.env,
       capture: true,
@@ -168,7 +168,7 @@ async function main() {
 
     const shot = await callBrowserApi(testEnv, jar, "/api/browser/screenshot", { userName: "robert" });
     assert.ok(shot.screenshotPath);
-    const shotExists = await runCommand("docker", ["exec", `${testEnv.project}-steve-1`, "test", "-f", shot.screenshotPath], {
+    const shotExists = await runCommand("docker", ["exec", `${testEnv.project}-kellix-1`, "test", "-f", shot.screenshotPath], {
       cwd,
       env: testEnv.env,
       capture: true,

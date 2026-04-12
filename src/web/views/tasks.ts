@@ -128,7 +128,7 @@ export function renderJobsPage(opts: RenderJobsPageOptions): string {
           ? "No scheduled tasks yet"
           : "No tasks match these filters",
         description: filterStatus === "all" && filterMember === "all"
-          ? "Steve creates tasks automatically when you set up reminders or recurring jobs from Telegram."
+          ? "Kellix creates tasks automatically when you set up reminders or recurring jobs from Telegram."
           : "Try clearing the filters above.",
       })
     : `<div class="space-y-3">${entries.map((e) => renderJobRow(e, csrfToken)).join("")}</div>`;

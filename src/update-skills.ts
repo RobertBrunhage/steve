@@ -1,7 +1,8 @@
 import * as p from "@clack/prompts";
+import { APP_NAME } from "./brand.js";
 import { config, getUserSkillsDir } from "./config.js";
 import { syncBundledSkillsForUser, validateSkillDirectories } from "./skills.js";
-import { normalizeUsers, uniqueUserSlugs } from "./users.js";
+import { readUsersFromVault, uniqueUserSlugs } from "./users.js";
 import { Vault, readKeyfile } from "./vault/index.js";
 
 function usage(): never {
@@ -25,16 +26,16 @@ function parseArgs(argv: string[]) {
 
 async function main() {
   const { force } = parseArgs(process.argv.slice(2));
-  p.intro(`Steve - Update Skills${force ? " (force)" : ""}`);
+  p.intro(`${APP_NAME} - Update Skills${force ? " (force)" : ""}`);
 
   const keyfile = readKeyfile(config.vaultDir);
   if (!keyfile) {
-    p.log.error("Steve is not set up yet. Start it and finish setup first.");
+    p.log.error(`${APP_NAME} is not set up yet. Start it and finish setup first.`);
     process.exit(1);
   }
 
   const vault = new Vault(config.vaultDir, keyfile);
-  const users = normalizeUsers(vault.get("steve/users")).users;
+  const users = readUsersFromVault(vault);
   const userNames = uniqueUserSlugs(users);
 
   if (userNames.length === 0) {

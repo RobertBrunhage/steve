@@ -3,14 +3,15 @@ import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as p from "@clack/prompts";
+import { APP_NAME, APP_SLUG, readEnv } from "./brand.js";
 import { decrypt } from "./vault/crypto.js";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const projectName = process.env.STEVE_PROJECT || "steve";
-const cliCommand = process.env.STEVE_CLI_COMMAND || "steve";
+const projectName = readEnv("KELLIX_PROJECT", "STEVE_PROJECT") || APP_SLUG;
+const cliCommand = readEnv("KELLIX_CLI_COMMAND", "STEVE_CLI_COMMAND") || APP_SLUG;
 
 function getVolumeName(name: "data" | "vault") {
-  return `${projectName}_steve-${name}`;
+  return `${projectName}_${APP_SLUG}-${name}`;
 }
 
 async function main() {
@@ -20,9 +21,9 @@ async function main() {
     process.exit(1);
   }
 
-  p.intro("Steve — Restore");
+  p.intro(`${APP_NAME} — Restore`);
 
-  const pw = process.env.STEVE_BACKUP_PASSWORD || await p.password({ message: "Backup password" });
+  const pw = readEnv("KELLIX_BACKUP_PASSWORD", "STEVE_BACKUP_PASSWORD") || await p.password({ message: "Backup password" });
   if (p.isCancel(pw)) { p.cancel("Cancelled."); process.exit(0); }
 
   const s = p.spinner();
@@ -59,7 +60,7 @@ async function main() {
 
     s.stop("Restored");
     p.log.success(`Backup from ${bundle.date}`);
-    p.outro(`Run '${cliCommand} up' to start Steve`);
+    p.outro(`Run '${cliCommand} up' to start ${APP_NAME}`);
   } catch (err) {
     s.stop("Restore failed");
     p.log.error(err instanceof Error ? err.message : String(err));

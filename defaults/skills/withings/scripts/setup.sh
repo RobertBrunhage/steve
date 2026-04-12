@@ -4,26 +4,26 @@
 set -euo pipefail
 
 USERNAME="${1:?Usage: setup.sh <userName>}"
-BASE_URL="${STEVE_BASE_URL:-http://localhost:7838}"
+BASE_URL="${KELLIX_BASE_URL:-http://localhost:7838}"
 
 # Step 1: Check client credentials
-CLIENT_ID="${STEVE_CRED_CLIENT_ID:-}"
-CLIENT_SECRET="${STEVE_CRED_CLIENT_SECRET:-}"
+CLIENT_ID="${KELLIX_CRED_CLIENT_ID:-}"
+CLIENT_SECRET="${KELLIX_CRED_CLIENT_SECRET:-}"
 
 if [[ -z "$CLIENT_ID" || -z "$CLIENT_SECRET" ]]; then
   cat <<EOF
 {"status":"needs_credentials","instructions":[
   "Create a Withings developer app at https://developer.withings.com",
   "Set callback URL to: ${BASE_URL}/callback",
-  "Open your Steve user page and add client_id and client_secret to the Withings integration"
+  "Open your Kellix user page and add client_id and client_secret to the Withings integration"
 ],"secret_manager":"${BASE_URL}/users/${USERNAME}/integrations/new?integration=withings"}
 EOF
   exit 0
 fi
 
 # Step 2: Check for valid tokens
-ACCESS_TOKEN="${STEVE_CRED_ACCESS_TOKEN:-}"
-EXPIRES_AT="${STEVE_CRED_EXPIRES_AT:-0}"
+ACCESS_TOKEN="${KELLIX_CRED_ACCESS_TOKEN:-}"
+EXPIRES_AT="${KELLIX_CRED_EXPIRES_AT:-0}"
 NOW=$(date +%s)
 
 if [[ -n "$ACCESS_TOKEN" && $(( EXPIRES_AT - NOW )) -gt 300 ]]; then
@@ -32,7 +32,7 @@ if [[ -n "$ACCESS_TOKEN" && $(( EXPIRES_AT - NOW )) -gt 300 ]]; then
 fi
 
 # Step 3: Try refreshing tokens
-REFRESH_TOKEN="${STEVE_CRED_REFRESH_TOKEN:-}"
+REFRESH_TOKEN="${KELLIX_CRED_REFRESH_TOKEN:-}"
 if [[ -n "$REFRESH_TOKEN" ]]; then
   RESPONSE=$(curl -s -X POST "https://wbsapi.withings.net/v2/oauth2" \
     -H "Content-Type: application/x-www-form-urlencoded" \
@@ -57,6 +57,6 @@ fi
 # Step 4: Need OAuth — return URL immediately, don't block
 REDIRECT_URI="${BASE_URL}/callback"
 ENCODED_REDIRECT=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${REDIRECT_URI}', safe=''))")
-AUTH_URL="https://account.withings.com/oauth2_user/authorize2?response_type=code&client_id=${CLIENT_ID}&redirect_uri=${ENCODED_REDIRECT}&scope=user.metrics&state=steve"
+AUTH_URL="https://account.withings.com/oauth2_user/authorize2?response_type=code&client_id=${CLIENT_ID}&redirect_uri=${ENCODED_REDIRECT}&scope=user.metrics&state=kellix"
 
 echo "{\"status\":\"needs_auth\",\"message\":\"Open this link to authorize Withings\",\"url\":\"${AUTH_URL}\"}"

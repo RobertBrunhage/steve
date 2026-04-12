@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 async function main() {
-  const tempDir = mkdtempSync(join(tmpdir(), "steve-bot-test-"));
+  const tempDir = mkdtempSync(join(tmpdir(), "kellix-bot-test-"));
   const originalFetch = globalThis.fetch;
 
-  process.env.STEVE_DIR = tempDir;
-  process.env.STEVE_VAULT_DIR = join(tempDir, "vault");
+  process.env.KELLIX_DIR = tempDir;
+  process.env.KELLIX_VAULT_DIR = join(tempDir, "vault");
 
   try {
     const { setRuntimeConfig } = await import("../src/config.js");

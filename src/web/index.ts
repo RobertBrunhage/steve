@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import { serve } from "@hono/node-server";
+import { ADMIN_AUTH_KEY, LEGACY_ADMIN_AUTH_KEY } from "../brand.js";
 import { getBaseUrl, readSystemSettings } from "../config.js";
 import type { Vault } from "../vault/index.js";
 import {
@@ -41,7 +42,7 @@ export function startWebServer(vault: Vault | null, port: number, options: WebSe
   }
 
   function getAdminAuthRecord(): unknown {
-    return currentVault?.get("steve/admin_auth") ?? null;
+    return currentVault?.get(ADMIN_AUTH_KEY) ?? currentVault?.get(LEGACY_ADMIN_AUTH_KEY) ?? null;
   }
 
   function isAdminConfigured(): boolean {

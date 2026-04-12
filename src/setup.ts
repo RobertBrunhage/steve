@@ -5,19 +5,28 @@ import {
   writeFileSync,
   readdirSync,
   cpSync,
+  unlinkSync,
 } from "node:fs";
 import { join } from "node:path";
+import {
+  APP_NAME,
+  APP_SLUG,
+  LEGACY_OPENCODE_AGENT_FILE,
+  LEGACY_OPENCODE_AGENT_NAME,
+  OPENCODE_AGENT_FILE,
+} from "./brand.js";
 import { syncUserAgentsRuntime } from "./agents.js";
-import { steveDir, config, getUserSkillsDir } from "./config.js";
+import { kellixDir, config, getUserSkillsDir } from "./config.js";
 import { getTelegramBotToken } from "./secrets.js";
 import { syncBundledSkillsForUser, validateProjectScriptsManifest, validateSkillDirectories } from "./skills.js";
 import { Vault, readKeyfile, initializeVault, hasKeyfile } from "./vault/index.js";
-import { normalizeUsers, toUserSlug, type UsersMap, uniqueUserSlugs, writeUserManifest } from "./users.js";
+import { migrateUsersVaultKey, readUsersFromVault, toUserSlug, type UsersMap, uniqueUserSlugs, writeUserManifest } from "./users.js";
+import { migrateLegacyAdminAuthKey } from "./web/auth.js";
 
 // --- Directory and config setup ---
 
 function createDirectories() {
-  mkdirSync(steveDir, { recursive: true });
+  mkdirSync(kellixDir, { recursive: true });
   mkdirSync(config.usersDir, { recursive: true });
   mkdirSync(config.sharedDir, { recursive: true });
 }
@@ -69,7 +78,7 @@ export function setupUserWorkspace(userName: string) {
 export function generateRuntimeConfig(users: UsersMap) {
   const mcpConfig = {
     type: "remote" as const,
-    url: `http://steve:${config.mcpPort}/mcp`,
+    url: `http://kellix:${config.mcpPort}/mcp`,
     enabled: true,
   };
 
@@ -87,16 +96,17 @@ export function generateRuntimeConfig(users: UsersMap) {
     }
   }
 
-  function mergeSteveOpenCodeDefaults(existing: Record<string, unknown>): Record<string, unknown> {
+  function mergeKellixOpenCodeDefaults(existing: Record<string, unknown>): Record<string, unknown> {
     const agent = isRecord(existing.agent) ? { ...existing.agent } : {};
     const build = isRecord(agent.build) ? { ...agent.build } : {};
     const plan = isRecord(agent.plan) ? { ...agent.plan } : {};
     const mcp = isRecord(existing.mcp) ? { ...existing.mcp } : {};
+    delete mcp[LEGACY_OPENCODE_AGENT_NAME];
 
     return {
       ...existing,
       $schema: "https://opencode.ai/config.json",
-      default_agent: "steve",
+      default_agent: APP_SLUG,
       agent: {
         ...agent,
         build: { ...build, disable: true },
@@ -104,7 +114,7 @@ export function generateRuntimeConfig(users: UsersMap) {
       },
       mcp: {
         ...mcp,
-        steve: mcpConfig,
+        [APP_SLUG]: mcpConfig,
       },
     };
   }
@@ -115,7 +125,7 @@ export function generateRuntimeConfig(users: UsersMap) {
 
     const agentMd = `---
 description: >-
-  Steve is a personal household assistant. Use this agent for all conversations.
+  Kellix is a personal household assistant. Use this agent for all conversations.
 mode: primary
 tools:
   task: false
@@ -139,17 +149,21 @@ permissions:
     pattern: "*"
 ---
 
-Current Steve user: ${userName}
+Current Kellix user: ${userName}
 When calling send_message, always use this exact userName: ${userName}
 `;
 
     const opencodePath = join(userDir, "opencode.json");
-    const nextOpenCodeConfig = mergeSteveOpenCodeDefaults(readExistingOpenCodeConfig(opencodePath));
+    const nextOpenCodeConfig = mergeKellixOpenCodeDefaults(readExistingOpenCodeConfig(opencodePath));
     writeFileSync(opencodePath, `${JSON.stringify(nextOpenCodeConfig, null, 2)}\n`, "utf-8");
 
     const agentDir = join(userDir, ".opencode", "agents");
     mkdirSync(agentDir, { recursive: true });
-    writeFileSync(join(agentDir, "steve.md"), agentMd, "utf-8");
+    writeFileSync(join(agentDir, OPENCODE_AGENT_FILE), agentMd, "utf-8");
+    const legacyAgentPath = join(agentDir, LEGACY_OPENCODE_AGENT_FILE);
+    if (existsSync(legacyAgentPath)) {
+      unlinkSync(legacyAgentPath);
+    }
 
     writeFileSync(
       join(userDir, ".gitignore"),
@@ -178,9 +192,10 @@ export async function runSetup(): Promise<SetupResult> {
       process.exit(1);
     }
     keyfile = kf;
-  } else if (process.env.STEVE_VAULT_PASSWORD) {
+  } else if (process.env.KELLIX_VAULT_PASSWORD || process.env.STEVE_VAULT_PASSWORD) {
     // First run via local/provisioned startup — create keyfile from password env var
-    const password = process.env.STEVE_VAULT_PASSWORD;
+    const password = process.env.KELLIX_VAULT_PASSWORD || process.env.STEVE_VAULT_PASSWORD || "";
+    delete process.env.KELLIX_VAULT_PASSWORD;
     delete process.env.STEVE_VAULT_PASSWORD;
     keyfile = initializeVault(config.vaultDir, password);
   } else {
@@ -197,8 +212,11 @@ export async function runSetup(): Promise<SetupResult> {
     process.exit(1);
   }
 
+  migrateLegacyAdminAuthKey(vault);
+  migrateUsersVaultKey(vault);
+
   const botToken = getTelegramBotToken(vault);
-  const users = normalizeUsers(vault.get("steve/users")).users;
+  const users = readUsersFromVault(vault);
 
   if (!botToken || !users || Object.keys(users).length === 0) {
     createDirectories();
@@ -215,7 +233,7 @@ export async function runSetup(): Promise<SetupResult> {
   generateRuntimeConfig(users);
 
   // Write user manifest for launch script
-  writeUserManifest(steveDir, users);
+  writeUserManifest(kellixDir, users);
   syncUserAgentsRuntime(users);
 
   return { vault, botToken, users };

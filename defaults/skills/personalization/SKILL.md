@@ -14,7 +14,7 @@ Use it when the user wants to:
 - change goals or target dates
 - change calorie or protein targets
 - update communication preferences
-- define how Steve should track their data
+- define how Kellix should track their data
 
 Always read these first:
 - `memory/profile.md` if it exists
@@ -22,7 +22,7 @@ Always read these first:
 
 ## Purpose
 
-`memory/profile.md` is the shared source of truth for Steve's understanding of the user.
+`memory/profile.md` is the shared source of truth for Kellix's understanding of the user.
 
 Keep it focused on stable information:
 - personal details
@@ -57,13 +57,13 @@ Prioritize these fields first:
 
 ## Communication Preferences
 
-The `## Preferences` section affects how Steve talks.
+The `## Preferences` section affects how Kellix talks.
 
 Capture things like:
 - concise vs detailed replies
 - emoji preference
 - supportive vs direct tone
-- anything else the user explicitly wants Steve to remember about how to communicate
+- anything else the user explicitly wants Kellix to remember about how to communicate
 
 ## File Template
 

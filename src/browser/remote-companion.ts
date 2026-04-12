@@ -1,14 +1,15 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { readEnv } from "../brand.js";
 import { ChromeMcpBrowserSession } from "./chrome-mcp.js";
 import { getTimestamp, looksLikeAuthRequired } from "./common.js";
 import { toUserSlug } from "../users.js";
 import type { AttachedBrowserConfig, BrowserActionResult } from "./types.js";
 
-const PORT = Number(process.env.STEVE_REMOTE_BROWSER_PORT || 4782);
-const ROOT = process.env.STEVE_REMOTE_BROWSER_ROOT || join(process.env.HOME || process.cwd(), ".steve", "remote-browser");
-const CONTAINER_ROOT = process.env.STEVE_REMOTE_BROWSER_CONTAINER_ROOT || "";
+const PORT = Number(readEnv("KELLIX_REMOTE_BROWSER_PORT", "STEVE_REMOTE_BROWSER_PORT")) || 4782;
+const ROOT = readEnv("KELLIX_REMOTE_BROWSER_ROOT", "STEVE_REMOTE_BROWSER_ROOT") || join(process.env.HOME || process.cwd(), ".kellix", "remote-browser");
+const CONTAINER_ROOT = readEnv("KELLIX_REMOTE_BROWSER_CONTAINER_ROOT", "STEVE_REMOTE_BROWSER_CONTAINER_ROOT") || "";
 
 const sessions = new Map<string, ChromeMcpBrowserSession>();
 const sessionPromises = new Map<string, Promise<ChromeMcpBrowserSession>>();
@@ -96,7 +97,7 @@ function toResult(snapshot: { url: string; title: string; text: string; elements
     text: snapshot.text,
     elements: snapshot.elements,
     message: message || (status === "auth_required"
-      ? "Continue in your attached Chrome window, then tell Steve when you are done."
+      ? "Continue in your attached Chrome window, then tell Kellix when you are done."
       : undefined),
   };
 }
@@ -169,12 +170,12 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  const pidPath = process.env.STEVE_REMOTE_BROWSER_PIDFILE;
+  const pidPath = readEnv("KELLIX_REMOTE_BROWSER_PIDFILE", "STEVE_REMOTE_BROWSER_PIDFILE");
   if (pidPath) {
     mkdirSync(dirname(pidPath), { recursive: true });
     writeFileSync(pidPath, `${process.pid}\n`, "utf-8");
   }
-  console.log(`steve-remote-browserd listening on ${PORT}`);
+  console.log(`kellix-remote-browserd listening on ${PORT}`);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

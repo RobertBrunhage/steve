@@ -3,6 +3,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join, resolve, normalize, basename, dirname } from "node:path";
 import { execFile } from "node:child_process";
 import { z } from "zod";
+import { APP_NAME, APP_SLUG } from "../brand.js";
 import { appendUserActivity } from "../activity.js";
 import { getBrowserService } from "../browser/index.js";
 import type { BrowserTarget } from "../browser/types.js";
@@ -67,7 +68,7 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
 
   return () => {
   const server = new McpServer({
-    name: "steve",
+    name: APP_SLUG,
     version: "1.0.0",
   });
 
@@ -129,10 +130,10 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
     return { content: [{ type: "text", text: `File sent to ${userName}` }] };
   });
 
-  const browserTargetSchema = z.enum(["container", "remote"]).optional().describe("Optional browser target. Defaults to Steve's configured browser target.");
+  const browserTargetSchema = z.enum(["container", "remote"]).optional().describe("Optional browser target. Defaults to Kellix's configured browser target.");
 
   server.registerTool("browser_open", {
-    description: "Open a URL in the current user's Steve browser profile. Returns a compact page snapshot. `viewerUrl` is only present for the container browser; attached remote Chrome does not return one.",
+    description: "Open a URL in the current user's Kellix browser profile. Returns a compact page snapshot. `viewerUrl` is only present for the container browser; attached remote Chrome does not return one.",
     inputSchema: {
       userName: z.string().describe("The current user name"),
       url: z.string().describe("The URL to open"),
@@ -253,7 +254,7 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
 
   server.registerTool("get_secret_url", {
     description:
-      "Get the URL where a user can add or manage secrets. Prefer passing the current userName so Steve links directly to that user's integrations.",
+      "Get the URL where a user can add or manage secrets. Prefer passing the current userName so Kellix links directly to that user's integrations.",
     inputSchema: {
       userName: z.string().optional().describe("Optional current user name to link directly to that user's integrations page"),
       integration: z.string().optional().describe("Optional integration name; currently used only for better instructions alongside the returned URL"),
@@ -329,6 +330,9 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
         timeout: 300_000,
         env: {
           ...process.env,
+          KELLIX_PROJECT_ROOT: projectRoot,
+          KELLIX_DATA_DIR: dataDir,
+          KELLIX_BASE_URL: getBaseUrl(),
           STEVE_PROJECT_ROOT: projectRoot,
           STEVE_DATA_DIR: dataDir,
           STEVE_BASE_URL: getBaseUrl(),

@@ -1,14 +1,14 @@
 #!/bin/bash
 # Refresh Withings access token using the stored refresh token
 # Usage: refresh-token.sh <userName>
-# Credentials injected as STEVE_CRED_* env vars by the MCP run_script tool
+# Credentials injected as KELLIX_CRED_* env vars by the MCP run_script tool
 set -euo pipefail
 
 USERNAME="${1:?Usage: refresh-token.sh <userName>}"
 
-CLIENT_ID="${STEVE_CRED_CLIENT_ID:?Missing STEVE_CRED_CLIENT_ID}"
-CLIENT_SECRET="${STEVE_CRED_CLIENT_SECRET:?Missing STEVE_CRED_CLIENT_SECRET}"
-REFRESH_TOKEN="${STEVE_CRED_REFRESH_TOKEN:?Missing STEVE_CRED_REFRESH_TOKEN}"
+CLIENT_ID="${KELLIX_CRED_CLIENT_ID:?Missing KELLIX_CRED_CLIENT_ID}"
+CLIENT_SECRET="${KELLIX_CRED_CLIENT_SECRET:?Missing KELLIX_CRED_CLIENT_SECRET}"
+REFRESH_TOKEN="${KELLIX_CRED_REFRESH_TOKEN:?Missing KELLIX_CRED_REFRESH_TOKEN}"
 
 RESPONSE=$(curl -s -X POST "https://wbsapi.withings.net/v2/oauth2" \
   -H "Content-Type: application/x-www-form-urlencoded" \

@@ -1,4 +1,5 @@
 import type { Bot } from "grammy";
+import { APP_NAME } from "../brand.js";
 import type { Brain } from "../brain/index.js";
 import { getRuntime } from "../config.js";
 import { findUserByTelegramId } from "../users.js";
@@ -24,7 +25,7 @@ export function registerCommands(
   bot.command("start", async (ctx) => {
     const name = getUserName(ctx.from?.id ?? 0);
     await ctx.reply(
-      `Hey ${name}! I'm Steve, your personal assistant.\n\nJust talk to me about anything. I can help with training, planning, notes, or whatever you need.`,
+      `Hey ${name}! I'm ${APP_NAME}, your personal assistant.\n\nJust talk to me about anything. I can help with training, planning, notes, or whatever you need.`,
     );
   });
 

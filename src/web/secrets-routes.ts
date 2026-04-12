@@ -1,9 +1,9 @@
 import type { Hono } from "hono";
 import { getHealth } from "../health.js";
-import { config, getSteveVersion, getSystemTimezone, getTelegramApiBase, isValidTimezone, refreshRuntimeConfigFromVault, writeSystemSettings } from "../config.js";
+import { config, getKellixVersion, getSystemTimezone, getTelegramApiBase, isValidTimezone, refreshRuntimeConfigFromVault, writeSystemSettings } from "../config.js";
 import { getTelegramBotToken, listUserAppSecrets, setTelegramBotToken } from "../secrets.js";
 import { getScheduledEntryNextRunAt, listScheduledEntries, removeUserJob, setUserJobDisabled } from "../scheduler.js";
-import { getTelegramChatId, normalizeUsers } from "../users.js";
+import { getTelegramChatId, readUsersFromVault } from "../users.js";
 import { readUserActivity } from "../activity.js";
 import { renderHome, renderJobsPage, renderSettings, type JobsFilterStatus, type MemberSummary } from "./views.js";
 import { validateUserSlug } from "./validate.js";
@@ -13,7 +13,7 @@ import { setFlash } from "./flash.js";
 export function registerSecretsRoutes(app: Hono, deps: WebRouteDeps) {
   const settingsView = (csrfToken: string, error?: string) => renderSettings(
     getTelegramBotToken(deps.getVault()),
-    getSteveVersion(),
+    getKellixVersion(),
     csrfToken,
     getSystemTimezone(),
     error,
@@ -25,7 +25,7 @@ export function registerSecretsRoutes(app: Hono, deps: WebRouteDeps) {
 
     const health = await getHealth();
     const vault = deps.getVault();
-    const users = normalizeUsers(vault?.get("steve/users")).users;
+    const users = readUsersFromVault(vault);
 
     // Build a per-member summary for the home grid. Order matches the
     // health.opencode key order so the grid stays stable across reloads.
@@ -91,7 +91,7 @@ export function registerSecretsRoutes(app: Hono, deps: WebRouteDeps) {
 
     const timezone = String(result.body.timezone || "").trim();
     if (!timezone || !isValidTimezone(timezone)) {
-      return c.html(renderSettings(getTelegramBotToken(deps.getVault()), getSteveVersion(), result.session.csrfToken, timezone || getSystemTimezone(), "Timezone must look like Europe/Stockholm"), 400);
+      return c.html(renderSettings(getTelegramBotToken(deps.getVault()), getKellixVersion(), result.session.csrfToken, timezone || getSystemTimezone(), "Timezone must look like Europe/Stockholm"), 400);
     }
 
     writeSystemSettings({ timezone });

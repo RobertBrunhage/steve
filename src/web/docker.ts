@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { getUserAgentComposePath } from "../agents.js";
+import { readEnv } from "../brand.js";
 
 function getUserContainerName(composeProject: string, name: string): string {
   return `${composeProject}-opencode-${name}`;
@@ -34,7 +35,7 @@ function runUserAgentCompose(composeProject: string, args: string[]) {
 }
 
 export function getComposeProject(): string {
-  return process.env.STEVE_PROJECT || "steve";
+  return readEnv("KELLIX_PROJECT", "STEVE_PROJECT") || "kellix";
 }
 
 export function startUserAgent(composeProject: string, name: string): void {

@@ -22,7 +22,7 @@ export function renderSetup(options: { needsVaultPassword: boolean; csrfToken: s
 
   const passwordSection = Section({
     title: "Step 1 — Create a password",
-    description: `${passwordHelp} Steve stays unlocked after normal restarts.`,
+    description: `${passwordHelp} Kellix stays unlocked after normal restarts.`,
     className: "mb-6",
     children: `
       <div class="space-y-3">
@@ -35,7 +35,7 @@ export function renderSetup(options: { needsVaultPassword: boolean; csrfToken: s
   const restSections = authOnly ? "" : `
     ${Section({
       title: "Step 2 — Confirm your timezone",
-      description: "Steve uses this for daily compaction and system-level schedules. We auto-fill it from your browser when possible.",
+      description: "Kellix uses this for daily compaction and system-level schedules. We auto-fill it from your browser when possible.",
       className: "mb-6",
       children: `
         <input type="text" id="timezone-input" name="timezone" value="${escapeHtml(timezone)}" placeholder="Europe/Stockholm" required class="${inputClassMono}">
@@ -65,7 +65,7 @@ export function renderSetup(options: { needsVaultPassword: boolean; csrfToken: s
 
   return layout("Setup", `
     <div class="text-center mb-8">
-      <h1 class="text-2xl font-semibold text-white">Welcome to Steve</h1>
+      <h1 class="text-2xl font-semibold text-white">Welcome to Kellix</h1>
       <p class="text-sm text-zinc-500 mt-2">${authOnly ? "Your backup is restored. Finish dashboard setup to continue." : "Let's get you set up. This takes about 2 minutes."}</p>
     </div>
     ${errorHtml}
@@ -97,7 +97,7 @@ export function renderSetupComplete(nextUrl = "/", buttonLabel = "Go to dashboar
         <span class="text-2xl text-emerald-400">&#10003;</span>
       </div>
       <h1 class="text-2xl font-semibold text-white mb-2">You're all set!</h1>
-      <p class="text-sm text-zinc-400 mb-6">Next, open your member page and connect Telegram so Steve can reach you.</p>
+      <p class="text-sm text-zinc-400 mb-6">Next, open your member page and connect Telegram so Kellix can reach you.</p>
       ${Button({ variant: "primary", href: nextUrl, children: buttonLabel })}
     </div>
   `, { width: "auth" });
@@ -107,7 +107,7 @@ export function renderLogin(error?: string): string {
   const errorHtml = error ? flash(error, "error") : "";
   return layout("Login", `
     <div class="text-center mb-8">
-      <h1 class="text-2xl font-semibold text-white">Steve</h1>
+      <h1 class="text-2xl font-semibold text-white">Kellix</h1>
       <p class="text-sm text-zinc-500 mt-2">Sign in with your dashboard password.</p>
     </div>
     ${errorHtml}
@@ -134,12 +134,12 @@ export function renderSetupLocked(): string {
   return layout("Setup Locked", `
     <div class="py-12 text-center">
       <h1 class="text-2xl font-semibold text-white mb-2">Setup link required</h1>
-      <p class="text-sm text-zinc-400 mb-6">Open the one-time setup URL from Steve's logs to continue.</p>
+      <p class="text-sm text-zinc-400 mb-6">Open the one-time setup URL from Kellix's logs to continue.</p>
       <div class="bg-surface-card border border-border rounded-lg p-4 text-left max-w-md mx-auto mb-4">
         <p class="text-xs uppercase tracking-wide text-zinc-500 mb-3">Run one of these commands</p>
         <div class="space-y-2 text-sm text-zinc-300 font-mono">
-          <div>steve setup-url</div>
-          <div>steve logs</div>
+          <div>kellix setup-url</div>
+          <div>kellix logs</div>
         </div>
       </div>
       <p class="text-xs text-zinc-600 mb-2">If you already finished setup, go to <a href="/login" class="text-zinc-300 hover:text-white">/login</a>.</p>

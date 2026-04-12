@@ -22,7 +22,7 @@ function test(name: string, fn: () => void) {
 }
 
 function run() {
-  const root = join(tmpdir(), `steve-platform-test-${Date.now()}`);
+  const root = join(tmpdir(), `kellix-platform-test-${Date.now()}`);
   const skillsDir = join(root, "skills");
   const defaultSkillsDir = join(root, "defaults", "skills");
   const userSkillsDir = join(root, "users", "robert", "skills");

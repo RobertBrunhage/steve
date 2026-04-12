@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { execSync } from "node:child_process";
 import * as p from "@clack/prompts";
+import { APP_NAME } from "./brand.js";
 import { config } from "./config.js";
 
 async function checkDocker(): Promise<boolean> {
@@ -32,7 +33,7 @@ function checkPort(port: number): boolean {
 }
 
 async function main() {
-  p.intro("Steve Doctor");
+  p.intro(`${APP_NAME} Doctor`);
 
   const checks: { name: string; ok: boolean; detail?: string }[] = [];
 
@@ -46,7 +47,7 @@ async function main() {
 
   // Users directory
   const usersOk = existsSync(config.usersDir);
-  checks.push({ name: "Users directory", ok: usersOk, detail: usersOk ? config.usersDir : "not found — run steve up first" });
+  checks.push({ name: "Users directory", ok: usersOk, detail: usersOk ? config.usersDir : "not found — run kellix up first" });
 
   // OpenCode
   const ocOk = await checkOpenCode();

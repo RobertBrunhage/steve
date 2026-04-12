@@ -8,7 +8,7 @@ import { getBrowserCompanionStatus } from "../browser/companion-status.js";
 import { config, getBaseUrl, getBrowserSettings, getUserDir, refreshRuntimeConfigFromVault } from "../config.js";
 import { deleteUserAppSecret, getUserAppSecret, listUserAppSecrets, setUserAppSecret } from "../secrets.js";
 import { generateRuntimeConfig, setupUserWorkspace } from "../setup.js";
-import { addOrUpdateTelegramUser, ensureUser, getTelegramChatId, normalizeUsers, writeUserManifest } from "../users.js";
+import { addOrUpdateTelegramUser, ensureUser, getTelegramChatId, readUsersFromVault, writeUserManifest, writeUsersToVault } from "../users.js";
 import { mergeFieldsWithExistingValue, parseFields, valueToFields } from "./common.js";
 import {
   getUserAgentLogs,
@@ -107,7 +107,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     const ocPort = agentState?.port || 0;
     const baseUrl = new URL(getBaseUrl());
     const ocUrl = ocPort && agentEnabled ? `http://${baseUrl.hostname}:${ocPort}` : "";
-    const users = normalizeUsers(deps.getVault()?.get("steve/users")).users;
+    const users = readUsersFromVault(deps.getVault());
     let currentModel: string | null = inferConfiguredModel(savedConfig);
     let modelProviders: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> = [];
 
@@ -151,9 +151,9 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
       return c.redirect("/");
     }
 
-    const existing = normalizeUsers(vault.get("steve/users")).users;
+    const existing = readUsersFromVault(vault);
     const updatedUsers = ensureUser(existing, validatedName.value);
-    vault.set("steve/users", updatedUsers as any);
+    writeUsersToVault(vault, updatedUsers);
     refreshRuntimeConfigFromVault(vault);
     setupUserWorkspace(validatedName.value);
     generateRuntimeConfig(updatedUsers);
@@ -177,9 +177,9 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
       return c.redirect(`/users/${c.req.param("name")}`);
     }
 
-    const existing = normalizeUsers(vault.get("steve/users")).users;
+    const existing = readUsersFromVault(vault);
     const updatedUsers = addOrUpdateTelegramUser(existing, validatedName.value, telegramId);
-    vault.set("steve/users", updatedUsers as any);
+    writeUsersToVault(vault, updatedUsers);
     refreshRuntimeConfigFromVault(vault);
     writeUserManifest(config.dataDir, updatedUsers);
     setFlash(c, "Telegram chat linked");

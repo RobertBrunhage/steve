@@ -41,9 +41,9 @@ jobs:
       - name: Compute image names
         id: image
         run: |
-          repo=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
-          echo "steve=${{ env.REGISTRY }}/$repo" >> "$GITHUB_OUTPUT"
-          echo "opencode=${{ env.REGISTRY }}/${repo}-opencode" >> "$GITHUB_OUTPUT"
+          owner=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          echo "kellix=${{ env.REGISTRY }}/${owner}/kellix" >> "$GITHUB_OUTPUT"
+          echo "opencode=${{ env.REGISTRY }}/${owner}/kellix-opencode" >> "$GITHUB_OUTPUT"
 
       - name: Validate release tag
         id: version
@@ -93,7 +93,7 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "release_name=Steve ${version#v}" >> "$GITHUB_OUTPUT"
+          echo "release_name=Kellix ${version#v}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout release source
         run: git checkout "${{ steps.version.outputs.source_ref }}"
@@ -114,17 +114,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push steve
+      - name: Build and push kellix
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.image.outputs.steve }}:${{ steps.version.outputs.version }}
+          tags: ${{ steps.image.outputs.kellix }}:${{ steps.version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build and push steve-opencode
+      - name: Build and push kellix-opencode
         uses: docker/build-push-action@v6
         with:
           context: .

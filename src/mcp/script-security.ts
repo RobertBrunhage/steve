@@ -11,7 +11,7 @@ export interface ScriptExecutionContext {
 }
 
 function toEnvKey(field: string): string {
-  return `STEVE_CRED_${field.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`;
+  return `KELLIX_CRED_${field.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`;
 }
 
 function resolveTemplate(value: string, userName: string): string {
@@ -75,6 +75,7 @@ function injectSecretFields(env: Record<string, string>, injectedSecretValues: s
     if (!(field in record)) continue;
     const envValue = String(record[field]);
     env[toEnvKey(field)] = envValue;
+    env[`STEVE_CRED_${field.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`] = envValue;
     injectedSecretValues.push(envValue);
   }
 }

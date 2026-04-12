@@ -3,30 +3,32 @@ import fs from "fs";
 import path from "path";
 
 const MEMORY_DIR = "./memory/daily";
-const STEVE_AGENT_PATH = path.resolve(".opencode/agents/steve.md");
+const KELLIX_AGENT_PATH = path.resolve(".opencode/agents/kellix.md");
+const LEGACY_STEVE_AGENT_PATH = path.resolve(".opencode/agents/steve.md");
 
-function readSteveUser(): string | null {
+function readKellixUser(): string | null {
   try {
-    const content = fs.readFileSync(STEVE_AGENT_PATH, "utf-8");
-    const match = content.match(/^Current Steve user: (.+)$/m);
+    const agentPath = fs.existsSync(KELLIX_AGENT_PATH) ? KELLIX_AGENT_PATH : LEGACY_STEVE_AGENT_PATH;
+    const content = fs.readFileSync(agentPath, "utf-8");
+    const match = content.match(/^Current (?:Kellix|Steve) user: (.+)$/m);
     return match?.[1]?.trim() || null;
   } catch {
     return null;
   }
 }
 
-function isPrimarySteveSessionTitle(title: string, userName: string | null): boolean {
-  if (!title.startsWith("Steve - ")) return false;
+function isPrimaryKellixSessionTitle(title: string, userName: string | null): boolean {
+  if (!title.startsWith("Kellix - ") && !title.startsWith("Steve - ")) return false;
   if (title.includes("(isolated)")) return false;
   if (!userName) return true;
-  return title.trim() === `Steve - ${userName}`;
+  return title.trim() === `Kellix - ${userName}` || title.trim() === `Steve - ${userName}`;
 }
 
 async function shouldRecordCompaction(client: any, sessionID: string, userName: string | null): Promise<boolean> {
   try {
     const res = await client.session.get({ path: { id: sessionID } });
     const title = String(res.data?.title || "");
-    return isPrimarySteveSessionTitle(title, userName);
+    return isPrimaryKellixSessionTitle(title, userName);
   } catch {
     return false;
   }
@@ -48,7 +50,7 @@ function appendToDaily(text: string, label: string) {
 }
 
 export const MemoryFlushPlugin: Plugin = async ({ client }: { client: any }) => {
-  const userName = readSteveUser();
+  const userName = readKellixUser();
 
   return {
     event: async ({ event }: { event: any }) => {

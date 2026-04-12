@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/steve.gif" alt="Steve" width="220">
+  <img src="assets/steve.gif" alt="Kellix" width="220">
 </p>
 
 <p align="center">
@@ -7,21 +7,21 @@
   Autonomous, OpenCode-powered, secret-safe by default.
 </p>
 
-# Steve
+# Kellix
 
-Steve is a self-hosted household AI assistant you talk to on Telegram.
+Kellix is a self-hosted household AI assistant you talk to on Telegram.
 
 It can set up integrations, manage reminders, keep per-person memory, run recurring routines, and handle real workflows for your home - without asking you to paste API keys into chat.
 
-If Steve needs credentials, it sends you straight to the right place in the dashboard. You add them there, Steve uses them securely, and the AI never sees the raw secret values.
+If Kellix needs credentials, it sends you straight to the right place in the dashboard. You add them there, Kellix uses them securely, and the AI never sees the raw secret values.
 
 Think OpenClaw-style autonomy, but simpler, more household-focused, and easier to trust.
 
-## Why People Try Steve
+## Why People Try Kellix
 
-- **It feels like an assistant, not a chatbot.** Steve can actually do things: run scripts, keep memory, manage schedules, and follow up later.
+- **It feels like an assistant, not a chatbot.** Kellix can actually do things: run scripts, keep memory, manage schedules, and follow up later.
 - **It is built for real people, not one power user.** Each person gets their own isolated agent, memory, skills, and integrations.
-- **Secrets stay out of chat.** Steve handles setup through the dashboard and injects credentials into scripts only when needed.
+- **Secrets stay out of chat.** Kellix handles setup through the dashboard and injects credentials into scripts only when needed.
 - **You can teach it new capabilities with markdown.** Skills are plain folders with a `SKILL.md` and optional scripts.
 - **It runs in your own environment.** Backups, restores, local hosting, and LAN access are all built in.
 
@@ -29,19 +29,19 @@ Think OpenClaw-style autonomy, but simpler, more household-focused, and easier t
 
 ```text
 You: "connect my Withings scale"
-Steve: "I need your app credentials - open this page"
+Kellix: "I need your app credentials - open this page"
 You: add them in the dashboard
-Steve: finishes setup, stores tokens securely, and keeps working
+Kellix: finishes setup, stores tokens securely, and keeps working
 ```
 
 ```text
 You: "remind me every Monday to review my training"
-Steve: creates the recurring job and follows up automatically
+Kellix: creates the recurring job and follows up automatically
 ```
 
 ```text
 You: "what was my weight trend this week?"
-Steve: checks your memory + integrations and replies with context
+Kellix: checks your memory + integrations and replies with context
 ```
 
 ## What You Get
@@ -59,18 +59,18 @@ Steve: checks your memory + integrations and replies with context
 **Prerequisite:** Docker
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/robertbrunhage/steve/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/robertbrunhage/kellix/main/install.sh | bash
 ```
 
-That installs a local `steve` command, downloads the runtime into `~/.steve`, and starts Steve with the latest published release.
+That installs a local `kellix` command, downloads the runtime into `~/.kellix`, and starts Kellix with the latest published release.
 
 Useful commands:
 
 ```bash
-steve logs
-steve update
-steve backup
-steve restore <file>
+kellix logs
+kellix update
+kellix backup
+kellix restore <file>
 ```
 
 First run:
@@ -81,23 +81,23 @@ First run:
 4. Add your Telegram bot token
 5. Create your first user
 6. Open that user's page and connect Telegram
-7. Start messaging Steve
+7. Start messaging Kellix
 
 If you need it again later, you can still run:
 
 ```bash
-steve setup-url
+kellix setup-url
 ```
 
-Steve usually auto-detects a LAN-friendly URL like `http://<your-machine>.local:7838`.
+Kellix usually auto-detects a LAN-friendly URL like `http://<your-machine>.local:7838`.
 
 If `.local` is flaky on your network, `http://localhost:7838` works too.
 
-## What Makes Steve Different
+## What Makes Kellix Different
 
 ### 1. Secrets Never Go Through Chat
 
-When Steve needs credentials:
+When Kellix needs credentials:
 
 1. it notices what is missing
 2. it links you to the right dashboard page
@@ -129,11 +129,11 @@ my-skill/
   templates/
 ```
 
-`SKILL.md` holds both the instructions and the machine-readable frontmatter Steve needs. No SDK required.
+`SKILL.md` holds both the instructions and the machine-readable frontmatter Kellix needs. No SDK required.
 
 ### 4. It Is Actually Built To Live With You
 
-Steve is not trying to be a public SaaS agent platform.
+Kellix is not trying to be a public SaaS agent platform.
 
 It is designed for trusted local or household use:
 
@@ -147,10 +147,10 @@ It is designed for trusted local or household use:
 At a high level:
 
 ```text
-You message Steve -> Steve picks the right user -> OpenCode does the work -> Steve replies
+You message Kellix -> Kellix picks the right user -> OpenCode does the work -> Kellix replies
 ```
 
-Under the hood, Steve handles:
+Under the hood, Kellix handles:
 
 - user routing
 - integrations and secrets
@@ -177,21 +177,21 @@ memory/
 Bundled skills can be synced into every user workspace with:
 
 ```bash
-steve update skills
-steve update skills --force
+kellix update skills
+kellix update skills --force
 ```
 
 ## Backup And Restore
 
-- `steve backup` / `steve restore <file>` for the installed runtime
-- `./steve backup` / `./steve restore <file>` for local development
+- `kellix backup` / `kellix restore <file>` for the installed runtime
+- `./kellix backup` / `./kellix restore <file>` for local development
 - restore keeps users, workspaces, and secrets together
 
-If needed after restore, Steve only asks you to finish dashboard password setup.
+If needed after restore, Kellix only asks you to finish dashboard password setup.
 
 ## Use Ollama
 
-If you want to run Steve with a local model on your own machine, the simplest first version is to use Ollama.
+If you want to run Kellix with a local model on your own machine, the simplest first version is to use Ollama.
 
 1. Install and start Ollama on the host machine
 2. Pull a model, for example:
@@ -200,7 +200,7 @@ If you want to run Steve with a local model on your own machine, the simplest fi
 ollama pull qwen3-coder:30b
 ```
 
-3. Open a user's `Agent` page in Steve
+3. Open a user's `Agent` page in Kellix
 4. In OpenCode, configure or select Ollama as the model provider
 5. Use this base URL from the user container:
 
@@ -212,47 +212,47 @@ That lets all user agents talk to the same Ollama instance running on your machi
 
 ## Local Development
 
-If you want to work on Steve itself:
+If you want to work on Kellix itself:
 
 ```bash
-git clone https://github.com/robertbrunhage/steve.git
-cd steve
+git clone https://github.com/robertbrunhage/kellix.git
+cd kellix
 pnpm install
-./steve up
+./kellix up
 ```
 
 There are two runtimes:
 
 | Runtime | Command | Images | Default URL |
 | --- | --- | --- | --- |
-| Installed | `steve ...` | Published release images | `http://localhost:7838` |
-| Local dev | `./steve ...` | Locally built images | `http://localhost:7839` |
+| Installed | `kellix ...` | Published release images | `http://localhost:7838` |
+| Local dev | `./kellix ...` | Locally built images | `http://localhost:7839` |
 
 So the mental model is simple:
 
-- `steve ...` is your installed instance
-- `./steve ...` is your development instance
+- `kellix ...` is your installed instance
+- `./kellix ...` is your development instance
 - same commands, separate environments
 
 Useful dev commands:
 
 ```bash
-./steve build
-./steve up
-./steve logs
-./steve update skills
-./steve backup
-./steve restore <file>
+./kellix build
+./kellix up
+./kellix logs
+./kellix update skills
+./kellix backup
+./kellix restore <file>
 pnpm doctor
 ```
 
 Published installs track versioned releases, not `latest`. `main` continues to publish dev images for trunk-based work.
 
-If you want the newest main build anyway, use `steve update --yolo`.
+If you want the newest main build anyway, use `kellix update --yolo`.
 
 ## Security Model
 
-Steve is designed for trusted local or household use.
+Kellix is designed for trusted local or household use.
 
 - encrypted vault for secrets
 - per-user isolation by default

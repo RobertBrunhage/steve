@@ -38,7 +38,7 @@ function renderIntegrationForm(opts: IntegrationFormOptions): string {
 
   const title = mode === "create" ? "Add integration" : `Edit ${titleCase(integration)}`;
   const introCopy = mode === "create"
-    ? "Connect a third-party service so Steve can use it on your behalf. These credentials stay encrypted in your private vault."
+    ? "Connect a third-party service so Kellix can use it on your behalf. These credentials stay encrypted in your private vault."
     : "Update the credentials for this integration. Existing values are hidden — leave a field blank to keep the saved value, or type a new one to replace it.";
 
   const errorHtml = error ? flash(error, "error") : "";

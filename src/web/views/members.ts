@@ -146,7 +146,7 @@ export function renderUserConnections(name: string, ocStatus: string, csrfToken:
 
   const telegramSection = Section({
     title: "Telegram",
-    description: "Link Telegram so Steve can message this user directly.",
+    description: "Link Telegram so Kellix can message this user directly.",
     badge: telegramBadge,
     className: "mb-6",
     children: `
@@ -165,7 +165,7 @@ export function renderUserConnections(name: string, ocStatus: string, csrfToken:
 
   const activitySection = Section({
     title: "Recent activity",
-    description: "What Steve has been doing for this member recently.",
+    description: "What Kellix has been doing for this member recently.",
     children: renderActivityItems(options?.recentActivity || []),
   });
 
@@ -203,7 +203,7 @@ export function renderUserBrowserPage(name: string, ocStatus: string, csrfToken:
       </div>
       ${Button({ variant: "secondary", disabled: !canAttach, children: attachedBrowser ? "Update Attach" : "Attach Local Chrome" })}
     </form>
-    <p class="text-xs text-zinc-600 mt-3">${canAttach ? "Once attached, tell Steve to use your attached browser only for sites that need it." : "Start the companion first, then attach Chrome for this member."}</p>
+    <p class="text-xs text-zinc-600 mt-3">${canAttach ? "Once attached, tell Kellix to use your attached browser only for sites that need it." : "Start the companion first, then attach Chrome for this member."}</p>
   `;
 
   const attachedDetail = attachedBrowser ? `
@@ -235,7 +235,7 @@ export function renderUserBrowserPage(name: string, ocStatus: string, csrfToken:
         </div>
         ${Badge({ tone: companionTone, children: companionLabel })}
       </div>
-      <p class="text-xs text-zinc-500">Start it manually with <code class="text-zinc-300">steve browser up</code>. Steve will not auto-start it for you.</p>
+      <p class="text-xs text-zinc-500">Start it manually with <code class="text-zinc-300">kellix browser up</code>. Kellix will not auto-start it for you.</p>
     </div>
   `;
 
@@ -243,11 +243,11 @@ export function renderUserBrowserPage(name: string, ocStatus: string, csrfToken:
     <div class="rounded-lg border border-border bg-surface p-4 mb-4">
       <p class="text-xs font-medium text-zinc-300 mb-3">Setup steps</p>
       <ol class="space-y-2 text-xs text-zinc-500 list-decimal pl-4">
-        <li>${browserCompanion.running ? "Keep the remote browser companion running on the Steve machine." : "On the Steve machine, run <code class=\"text-zinc-300\">steve browser up</code>."}</li>
+        <li>${browserCompanion.running ? "Keep the remote browser companion running on the Kellix machine." : "On the Kellix machine, run <code class=\"text-zinc-300\">kellix browser up</code>."}</li>
         <li>Open Chrome on that same machine.</li>
         <li>Enable remote debugging at <a href="chrome://inspect/#remote-debugging" class="text-zinc-300 underline decoration-zinc-600 underline-offset-2 hover:text-white">chrome://inspect/#remote-debugging</a>.</li>
         <li>Choose the Chrome channel below and click <strong class="text-zinc-300">Attach Local Chrome</strong>.</li>
-        <li>When Steve needs the attached browser, approve the prompt in Chrome.</li>
+        <li>When Kellix needs the attached browser, approve the prompt in Chrome.</li>
       </ol>
     </div>
   `;
@@ -302,14 +302,14 @@ export function renderUserIntegrationsPage(name: string, ocStatus: string, csrfT
   const body = secrets.length === 0
     ? EmptyState({
         title: "No integrations yet",
-        description: "Connect a third-party service so Steve can fetch data or take actions on your behalf.",
+        description: "Connect a third-party service so Kellix can fetch data or take actions on your behalf.",
         action: addButton,
       })
     : `<div class="space-y-3">${secrets.map((s) => renderIntegrationRow(name, s, csrfToken)).join("")}</div>`;
 
   const section = Section({
     title: "Integrations",
-    description: "API keys and credentials Steve uses to connect to third-party services for this member.",
+    description: "API keys and credentials Kellix uses to connect to third-party services for this member.",
     actions: secrets.length > 0 ? addButton : "",
     children: body,
   });
@@ -369,14 +369,14 @@ export function renderUserAgentPage(name: string, ocStatus: string, ocUrl: strin
       </div>
       ${Button({ variant: "primary", children: "Save" })}
     </form>
-    <p class="text-xs text-zinc-600 mt-3">${currentModel ? "The agent restarts automatically after saving so changes take effect right away." : "Steve will restart the agent after saving."}</p>
+    <p class="text-xs text-zinc-600 mt-3">${currentModel ? "The agent restarts automatically after saving so changes take effect right away." : "Kellix will restart the agent after saving."}</p>
   ` : `
     <p class="text-xs text-zinc-500">No models available yet. Start the agent first — providers and models will appear once the runtime is ready.</p>
   `;
 
   const modelSection = Section({
     title: "AI model",
-    description: "The model Steve uses when responding to Telegram messages and running background tasks for this member.",
+    description: "The model Kellix uses when responding to Telegram messages and running background tasks for this member.",
     className: "mb-6",
     children: `
       ${currentModelPill}

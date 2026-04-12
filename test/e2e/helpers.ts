@@ -20,7 +20,7 @@ export interface TestEnv {
 
 export function createTestEnv(cwd: string, name: string): TestEnv {
   const suffix = `${name}-${Date.now()}`;
-  const backupDir = join(tmpdir(), `steve-e2e-${suffix}`);
+  const backupDir = join(tmpdir(), `kellix-e2e-${suffix}`);
   mkdirSync(backupDir, { recursive: true });
   const localEnvDir = join(backupDir, "local-env");
   mkdirSync(localEnvDir, { recursive: true });
@@ -32,25 +32,25 @@ export function createTestEnv(cwd: string, name: string): TestEnv {
   const browserViewerPortMax = browserViewerPortBase + 19;
 
   return {
-    project: `steve-${suffix}`,
+    project: `kellix-${suffix}`,
     webPort,
     opencodePortBase,
     telegramPort,
     telegramToken: "test-telegram-token",
-    backupPassword: "steve-backup-password",
+    backupPassword: "kellix-backup-password",
     cwd,
     backupDir,
     localEnvDir,
     env: {
       ...process.env,
-      STEVE_PROJECT: `steve-${suffix}`,
-      STEVE_WEB_PORT: String(webPort),
-      STEVE_OPENCODE_PORT_BASE: String(opencodePortBase),
-      STEVE_BROWSER_VIEWER_PORT_BASE: String(browserViewerPortBase),
-      STEVE_BROWSER_VIEWER_PORT_MAX: String(browserViewerPortMax),
-      STEVE_TELEGRAM_API_BASE: `http://host.docker.internal:${telegramPort}`,
-      STEVE_BACKUP_PASSWORD: "steve-backup-password",
-      STEVE_LOCAL_ENV_DIR: localEnvDir,
+      KELLIX_PROJECT: `kellix-${suffix}`,
+      KELLIX_WEB_PORT: String(webPort),
+      KELLIX_OPENCODE_PORT_BASE: String(opencodePortBase),
+      KELLIX_BROWSER_VIEWER_PORT_BASE: String(browserViewerPortBase),
+      KELLIX_BROWSER_VIEWER_PORT_MAX: String(browserViewerPortMax),
+      KELLIX_TELEGRAM_API_BASE: `http://host.docker.internal:${telegramPort}`,
+      KELLIX_BACKUP_PASSWORD: "kellix-backup-password",
+      KELLIX_LOCAL_ENV_DIR: localEnvDir,
     },
   };
 }
@@ -59,7 +59,7 @@ export function cleanupTestEnv(testEnv: TestEnv) {
   rmSync(testEnv.backupDir, { recursive: true, force: true });
 }
 
-export function getLocalComposeArgs(cwd: string, project: string, envDir = join(cwd, ".steve-dev")): string[] {
+export function getLocalComposeArgs(cwd: string, project: string, envDir = join(cwd, ".kellix-dev")): string[] {
   return [
     "compose",
     "--project-name",
@@ -248,7 +248,7 @@ export async function startTelegramMockServer(port: number, token: string): Prom
     const method = req.url.slice(`/bot${token}/`.length).split("?", 1)[0];
     switch (method) {
       case "getMe":
-        sendJson(res, { ok: true, result: { id: 1, is_bot: true, first_name: "Steve", username: "steve_test_bot" } });
+        sendJson(res, { ok: true, result: { id: 1, is_bot: true, first_name: "Kellix", username: "kellix_test_bot" } });
         return;
       case "setMyCommands":
       case "deleteWebhook":

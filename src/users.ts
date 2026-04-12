@@ -1,5 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { Vault } from "./vault/index.js";
+import { LEGACY_USERS_VAULT_KEY, USERS_VAULT_KEY } from "./brand.js";
 
 export interface TelegramChannelLink {
   chat_id: string;
@@ -119,6 +121,28 @@ export function normalizeUsers(input: unknown): { users: UsersMap } {
   }
 
   return { users };
+}
+
+export function readUsersFromVault(vault: Vault | null): UsersMap {
+  if (!vault) return {};
+  return normalizeUsers(vault.get(USERS_VAULT_KEY) ?? vault.get(LEGACY_USERS_VAULT_KEY)).users;
+}
+
+export function writeUsersToVault(vault: Vault, users: UsersMap): void {
+  vault.set(USERS_VAULT_KEY, users as any);
+  if (vault.has(LEGACY_USERS_VAULT_KEY)) {
+    vault.delete(LEGACY_USERS_VAULT_KEY);
+  }
+}
+
+export function migrateUsersVaultKey(vault: Vault): void {
+  const legacyUsers = vault.get(LEGACY_USERS_VAULT_KEY);
+  if (!legacyUsers) return;
+
+  if (!vault.has(USERS_VAULT_KEY)) {
+    vault.set(USERS_VAULT_KEY, legacyUsers as any);
+  }
+  vault.delete(LEGACY_USERS_VAULT_KEY);
 }
 
 export function writeUserManifest(dataDir: string, users: UsersMap): void {

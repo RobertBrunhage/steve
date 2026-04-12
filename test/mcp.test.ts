@@ -21,7 +21,7 @@ function test(name: string, fn: () => void) {
 }
 
 function run() {
-  const testDir = join(tmpdir(), `steve-mcp-test-${Date.now()}`);
+  const testDir = join(tmpdir(), `kellix-mcp-test-${Date.now()}`);
   const dataDir = join(testDir, "data");
   const projectRoot = join(testDir, "project");
   const vaultDir = join(testDir, "vault");
@@ -72,6 +72,8 @@ scripts:
 
   test("manifest: injects only declared secret fields", () => {
     assert.deepEqual(manifestContext.env, {
+      KELLIX_CRED_API_KEY: "weather-secret",
+      KELLIX_CRED_REFRESH_TOKEN: "refresh-secret",
       STEVE_CRED_API_KEY: "weather-secret",
       STEVE_CRED_REFRESH_TOKEN: "refresh-secret",
     });
@@ -104,7 +106,10 @@ scripts:
 
   test("project scripts: support manifest-based secret injection", () => {
     assert.equal(projectContext.usedManifest, true);
-    assert.deepEqual(projectContext.env, { STEVE_CRED_TOKEN: "project-secret" });
+    assert.deepEqual(projectContext.env, {
+      KELLIX_CRED_TOKEN: "project-secret",
+      STEVE_CRED_TOKEN: "project-secret",
+    });
   });
 
   test("manifest: exact secret lookup uses canonical users/<user>/<integration>/app keys", () => {
@@ -130,6 +135,8 @@ scripts:
       projectRoot,
     });
     assert.deepEqual(ctx.env, {
+      KELLIX_CRED_CLIENT_ID: "withings-client",
+      KELLIX_CRED_CLIENT_SECRET: "withings-secret",
       STEVE_CRED_CLIENT_ID: "withings-client",
       STEVE_CRED_CLIENT_SECRET: "withings-secret",
     });

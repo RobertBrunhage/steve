@@ -2,27 +2,28 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readEnv } from "./brand.js";
 import type { Vault } from "./vault/index.js";
 import { getTelegramBotToken } from "./secrets.js";
-import { getAllowedTelegramIds, normalizeUsers, toUserSlug, type UsersMap } from "./users.js";
+import { getAllowedTelegramIds, readUsersFromVault, toUserSlug, type UsersMap } from "./users.js";
 import type { BrowserSettings } from "./browser/types.js";
 
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(__dirname, "..");
-const steveDir = process.env.STEVE_DIR || join(homedir(), ".steve");
-const stateDir = process.env.STEVE_STATE_DIR || steveDir;
+const kellixDir = readEnv("KELLIX_DIR", "STEVE_DIR") || join(homedir(), ".kellix");
+const stateDir = readEnv("KELLIX_STATE_DIR", "STEVE_STATE_DIR") || kellixDir;
 
-const vaultDir = process.env.STEVE_VAULT_DIR || "/vault";
-const mcpPort = Number(process.env.STEVE_MCP_PORT) || 3100;
-const webPort = Number(process.env.STEVE_WEB_PORT) || 7838;
-const opencodePortBase = Number(process.env.STEVE_OPENCODE_PORT_BASE) || 3456;
-const browserViewerPortBase = Number(process.env.STEVE_BROWSER_VIEWER_PORT_BASE) || 6080;
-const browserViewerPortMax = Number(process.env.STEVE_BROWSER_VIEWER_PORT_MAX) || 6119;
-const browserVncPortBase = Number(process.env.STEVE_BROWSER_VNC_PORT_BASE) || 5901;
-const browserDisplayBase = Number(process.env.STEVE_BROWSER_DISPLAY_BASE) || 90;
-const remoteBrowserBaseUrl = process.env.STEVE_REMOTE_BROWSER_URL || "";
-const telegramApiBase = process.env.STEVE_TELEGRAM_API_BASE || "https://api.telegram.org";
+const vaultDir = readEnv("KELLIX_VAULT_DIR", "STEVE_VAULT_DIR") || "/vault";
+const mcpPort = Number(readEnv("KELLIX_MCP_PORT", "STEVE_MCP_PORT")) || 3100;
+const webPort = Number(readEnv("KELLIX_WEB_PORT", "STEVE_WEB_PORT")) || 7838;
+const opencodePortBase = Number(readEnv("KELLIX_OPENCODE_PORT_BASE", "STEVE_OPENCODE_PORT_BASE")) || 3456;
+const browserViewerPortBase = Number(readEnv("KELLIX_BROWSER_VIEWER_PORT_BASE", "STEVE_BROWSER_VIEWER_PORT_BASE")) || 6080;
+const browserViewerPortMax = Number(readEnv("KELLIX_BROWSER_VIEWER_PORT_MAX", "STEVE_BROWSER_VIEWER_PORT_MAX")) || 6119;
+const browserVncPortBase = Number(readEnv("KELLIX_BROWSER_VNC_PORT_BASE", "STEVE_BROWSER_VNC_PORT_BASE")) || 5901;
+const browserDisplayBase = Number(readEnv("KELLIX_BROWSER_DISPLAY_BASE", "STEVE_BROWSER_DISPLAY_BASE")) || 90;
+const remoteBrowserBaseUrl = readEnv("KELLIX_REMOTE_BROWSER_URL", "STEVE_REMOTE_BROWSER_URL") || "";
+const telegramApiBase = readEnv("KELLIX_TELEGRAM_API_BASE", "STEVE_TELEGRAM_API_BASE") || "https://api.telegram.org";
 const DEFAULT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   enabled: true,
@@ -32,14 +33,14 @@ const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   remoteBaseUrl: remoteBrowserBaseUrl,
 };
 
-export interface SteveSystemSettings {
+export interface KellixSystemSettings {
   timezone: string;
   browser: BrowserSettings;
 }
 
-export interface SteveConfig {
+export interface KellixConfig {
   projectRoot: string;
-  steveDir: string;
+  kellixDir: string;
   stateDir: string;
   dataDir: string;
   usersDir: string;
@@ -82,7 +83,7 @@ export function setRuntimeConfig(rc: RuntimeConfig) {
 }
 
 export function refreshRuntimeConfigFromVault(vault: Vault) {
-  const users = normalizeUsers(vault.get("steve/users")).users;
+  const users = readUsersFromVault(vault);
   setRuntimeConfig({
     botToken: getTelegramBotToken(vault) || "",
     users,
@@ -95,13 +96,13 @@ export function getRuntime(): RuntimeConfig {
   return _runtime;
 }
 
-export const config: SteveConfig = Object.freeze({
+export const config: KellixConfig = Object.freeze({
   projectRoot,
-  steveDir,
+  kellixDir,
   stateDir,
-  dataDir: steveDir,
-  usersDir: join(steveDir, "users"),
-  sharedDir: join(steveDir, "shared"),
+  dataDir: kellixDir,
+  usersDir: join(kellixDir, "users"),
+  sharedDir: join(kellixDir, "shared"),
   defaultsDir: join(projectRoot, "defaults"),
   defaultSkillsDir: join(projectRoot, "defaults/skills"),
   vaultDir,
@@ -151,13 +152,13 @@ export function getDefaultTimezone(): string {
   return DEFAULT_TIMEZONE;
 }
 
-export function readSystemSettings(): SteveSystemSettings {
+export function readSystemSettings(): KellixSystemSettings {
   try {
     const path = getSystemSettingsPath();
     if (!existsSync(path)) {
       return { timezone: DEFAULT_TIMEZONE, browser: DEFAULT_BROWSER_SETTINGS };
     }
-    const parsed = JSON.parse(readFileSync(path, "utf-8")) as Partial<SteveSystemSettings>;
+    const parsed = JSON.parse(readFileSync(path, "utf-8")) as Partial<KellixSystemSettings>;
     const timezone = typeof parsed.timezone === "string" && isValidTimezone(parsed.timezone)
       ? parsed.timezone
       : DEFAULT_TIMEZONE;
@@ -180,8 +181,8 @@ export function readSystemSettings(): SteveSystemSettings {
   }
 }
 
-export function writeSystemSettings(settings: Partial<SteveSystemSettings>): SteveSystemSettings {
-  const next: SteveSystemSettings = {
+export function writeSystemSettings(settings: Partial<KellixSystemSettings>): KellixSystemSettings {
+  const next: KellixSystemSettings = {
     ...readSystemSettings(),
     ...settings,
   };
@@ -205,20 +206,20 @@ export function getBrowserSettings(): BrowserSettings {
 }
 
 export function getBrowserViewerUrl(port: number): string {
-  const host = process.env.STEVE_HOSTNAME || "localhost";
+  const host = readEnv("KELLIX_HOSTNAME", "STEVE_HOSTNAME") || "localhost";
   const hostname = host === "localhost" || host.includes(".") ? host : `${host}.local`;
   return `http://${hostname}:${port}/vnc.html?autoconnect=1&resize=scale`;
 }
 
-export function getSteveVersion(): string {
-  return process.env.STEVE_VERSION || "dev";
+export function getKellixVersion(): string {
+  return readEnv("KELLIX_VERSION", "STEVE_VERSION") || "dev";
 }
 
-/** Get the base URL for Steve's web UI — single source of truth */
+/** Get the base URL for Kellix's web UI — single source of truth */
 export function getBaseUrl(): string {
-  const host = process.env.STEVE_HOSTNAME || "localhost";
+  const host = readEnv("KELLIX_HOSTNAME", "STEVE_HOSTNAME") || "localhost";
   const hostname = host === "localhost" || host.includes(".") ? host : `${host}.local`;
   return `http://${hostname}:${config.webPort}`;
 }
 
-export { steveDir };
+export { kellixDir };

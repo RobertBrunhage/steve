@@ -3,14 +3,14 @@
 # Usage: fetch-measurements.sh <userName> [startDate]
 # If startDate (YYYY-MM-DD) is provided, returns all daily weight/body comp entries from that date onward.
 # Otherwise returns the latest measurement group only.
-# Credentials injected as STEVE_CRED_* env vars by the MCP run_script tool
+# Credentials injected as KELLIX_CRED_* env vars by the MCP run_script tool
 set -euo pipefail
 
 USERNAME="${1:?Usage: fetch-measurements.sh <userName> [startDate]}"
 START_DATE="${2:-}"
 
-ACCESS_TOKEN="${STEVE_CRED_ACCESS_TOKEN:?Missing STEVE_CRED_ACCESS_TOKEN}"
-EXPIRES_AT="${STEVE_CRED_EXPIRES_AT:-0}"
+ACCESS_TOKEN="${KELLIX_CRED_ACCESS_TOKEN:?Missing KELLIX_CRED_ACCESS_TOKEN}"
+EXPIRES_AT="${KELLIX_CRED_EXPIRES_AT:-0}"
 NOW=$(date +%s)
 
 # Check token expiry (with 5 min buffer)

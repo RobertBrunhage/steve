@@ -1,6 +1,6 @@
 /**
- * Integration test for Steve's setup flow.
- * Uses a temp directory via STEVE_DIR — never touches ~/.steve/.
+ * Integration test for Kellix's setup flow.
+ * Uses a temp directory via KELLIX_DIR — never touches ~/.kellix/.
  *
  * Run: pnpm test
  */
@@ -17,9 +17,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { strict as assert } from "node:assert";
 
-const testDir = join(tmpdir(), `steve-test-${Date.now()}`);
-process.env.STEVE_DIR = testDir;
-process.env.STEVE_VAULT_DIR = join(testDir, "vault");
+const testDir = join(tmpdir(), `kellix-test-${Date.now()}`);
+process.env.KELLIX_DIR = testDir;
+process.env.KELLIX_VAULT_DIR = join(testDir, "vault");
 
 let passed = 0;
 let failed = 0;
@@ -60,8 +60,8 @@ function extractCsrf(html: string): string | null {
 }
 
 async function run() {
-  console.log(`\n━━━ Steve Setup Tests ━━━`);
-  console.log(`  STEVE_DIR: ${testDir}\n`);
+  console.log(`\n━━━ Kellix Setup Tests ━━━`);
+  console.log(`  KELLIX_DIR: ${testDir}\n`);
 
   mkdirSync(testDir, { recursive: true });
 
@@ -94,7 +94,7 @@ async function run() {
 
   // --- Test 2: With vault password → returns vault, sets up workspace ---
 
-  process.env.STEVE_VAULT_PASSWORD = "test-password-123";
+  process.env.KELLIX_VAULT_PASSWORD = "test-password-123";
 
   // Need to re-import to get fresh module (setup caches config)
   const setup2 = await import("../src/setup.js");
@@ -114,14 +114,14 @@ async function run() {
     assert.ok(existsSync(join(testDir, "vault", "keyfile")));
   });
 
-  test("STEVE_VAULT_PASSWORD cleared from env", () => {
-    assert.equal(process.env.STEVE_VAULT_PASSWORD, undefined);
+  test("KELLIX_VAULT_PASSWORD cleared from env", () => {
+    assert.equal(process.env.KELLIX_VAULT_PASSWORD, undefined);
   });
 
   // --- Test 3: Simulate configured vault → full setup ---
 
   result2.vault!.set("system/telegram/bot_token", "test-token-123" as any);
-  result2.vault!.set("steve/users", {
+  result2.vault!.set("kellix/users", {
     testuser: {
       name: "testuser",
       channels: {
@@ -190,9 +190,9 @@ async function run() {
   test("opencode config generated", () => {
     const userDir = join(testDir, "users", "testuser");
     assert.ok(existsSync(join(userDir, "opencode.json")));
-    assert.ok(existsSync(join(userDir, ".opencode", "agents", "steve.md")));
+    assert.ok(existsSync(join(userDir, ".opencode", "agents", "kellix.md")));
     const config = JSON.parse(readFileSync(join(userDir, "opencode.json"), "utf-8"));
-    assert.equal(config.default_agent, "steve");
+    assert.equal(config.default_agent, "kellix");
     assert.equal(config.agent.build.disable, true);
     assert.equal(config.agent.plan.disable, true);
   });
@@ -224,7 +224,7 @@ async function run() {
     assert.equal(config.provider.openai.models["gpt-5.4"].name, "GPT-5.4");
     assert.equal(config.mcp.custom.url, "http://custom.example/mcp");
     assert.equal(config.custom_setting, true);
-    assert.equal(config.mcp.steve.url, "http://steve:3100/mcp");
+    assert.equal(config.mcp.kellix.url, "http://kellix:3100/mcp");
   });
 
   const enabledAgents = upsertUserAgentRecord(readUserAgentState(), "testuser", { enabled: true });
@@ -234,7 +234,7 @@ async function run() {
   test("enabled agents are written to the generated compose file", () => {
     const compose = readFileSync(join(testDir, "agents.compose.yml"), "utf-8");
     assert.match(compose, /opencode-testuser/);
-    assert.match(compose, /image: \$\{STEVE_OPENCODE_IMAGE:-ghcr\.io\/robertbrunhage\/steve-opencode:main\}/);
+    assert.match(compose, /image: \$\{KELLIX_OPENCODE_IMAGE:-ghcr\.io\/robertbrunhage\/kellix-opencode:main\}/);
     assert.match(compose, /3457:3456/);
   });
 
@@ -250,8 +250,8 @@ async function run() {
   });
 
   test("agent instructions pin the current user name", () => {
-    const agent = readFileSync(join(testDir, "users", "testuser", ".opencode", "agents", "steve.md"), "utf-8");
-    assert.match(agent, /Current Steve user: testuser/);
+    const agent = readFileSync(join(testDir, "users", "testuser", ".opencode", "agents", "kellix.md"), "utf-8");
+    assert.match(agent, /Current Kellix user: testuser/);
     assert.match(agent, /always use this exact userName: testuser/);
   });
 
@@ -289,12 +289,12 @@ async function run() {
   });
 
   test("web setup: locked page explains how to find setup link", () => {
-    assert.match(lockedSetupHtml, /steve setup-url/);
-    assert.match(lockedSetupHtml, /steve logs/);
+    assert.match(lockedSetupHtml, /kellix setup-url/);
+    assert.match(lockedSetupHtml, /kellix logs/);
   });
 
   const bootstrapPage = await app.request(`/setup?token=${setupToken}`);
-  const bootstrapCookie = getCookieValue(bootstrapPage, "steve_bootstrap");
+  const bootstrapCookie = getCookieValue(bootstrapPage, "kellix_bootstrap");
   const bootstrapHtml = await bootstrapPage.text();
   const bootstrapCsrf = extractCsrf(bootstrapHtml);
 
@@ -323,7 +323,7 @@ async function run() {
   });
 
   const bootstrapPage2 = await app.request(`/setup?token=${setupToken}`);
-  const bootstrapCookie2 = getCookieValue(bootstrapPage2, "steve_bootstrap");
+  const bootstrapCookie2 = getCookieValue(bootstrapPage2, "kellix_bootstrap");
   const bootstrapCsrf2 = extractCsrf(await bootstrapPage2.text());
 
   const goodSetup = await app.request("/setup", {
@@ -341,7 +341,7 @@ async function run() {
       user_name_0: "robert",
     }),
   });
-  const adminCookie = getCookieValue(goodSetup, "steve_session");
+  const adminCookie = getCookieValue(goodSetup, "kellix_session");
 
   test("web setup: successful setup creates admin session", () => {
     assert.equal(goodSetup.status, 200);
@@ -433,7 +433,7 @@ async function run() {
   const webVault = new Vault(join(testDir, "vault"), webVaultKey!);
   test("web auth: invalid user names are rejected", () => {
     assert.equal(addInvalidUser.status, 302);
-    assert.deepEqual(webVault.get("steve/users"), {
+    assert.deepEqual(webVault.get("kellix/users"), {
       robert: {
         name: "robert",
         channels: {},
@@ -451,10 +451,10 @@ async function run() {
   });
   const usersAfterAdd = new Vault(join(testDir, "vault"), webVaultKey!);
 
-  test("web users: add user creates the Steve user before linking channels", () => {
+  test("web users: add user creates the Kellix user before linking channels", () => {
     assert.equal(addUser.status, 302);
     assert.equal(addUser.headers.get("location"), "/users/friend");
-    assert.deepEqual(usersAfterAdd.get("steve/users"), {
+    assert.deepEqual(usersAfterAdd.get("kellix/users"), {
       robert: {
         name: "robert",
         channels: {},
@@ -614,7 +614,7 @@ async function run() {
   test("web users: Telegram can be linked from the user page", () => {
     assert.equal(connectTelegram.status, 302);
     assert.equal(connectTelegram.headers.get("location"), "/users/friend");
-    assert.deepEqual(usersAfterTelegramConnect.get("steve/users"), {
+    assert.deepEqual(usersAfterTelegramConnect.get("kellix/users"), {
       robert: {
         name: "robert",
         channels: {},
@@ -671,12 +671,12 @@ async function run() {
 
   writeFileSync(join(testDir, "users", "friend", "opencode.json"), JSON.stringify({
     $schema: "https://opencode.ai/config.json",
-    default_agent: "steve",
+    default_agent: "kellix",
     model: "openai/gpt-5.4-mini",
     mcp: {
-      steve: {
+      kellix: {
         type: "remote",
-        url: "http://steve:3100/mcp",
+        url: "http://kellix:3100/mcp",
         enabled: true,
       },
     },
@@ -691,12 +691,12 @@ async function run() {
     assert.equal(integrationsPage.status, 200);
     assert.match(integrationsHtml, /<h2 class="text-sm font-medium text-white">Integrations<\/h2>/);
     assert.match(integrationsHtml, /Add integration/i);
-    assert.match(integrationsHtml, /API keys and credentials Steve uses to connect to third-party services for this member/);
+    assert.match(integrationsHtml, /API keys and credentials Kellix uses to connect to third-party services for this member/);
   });
 
   test("web users: agent page includes model controls", () => {
     assert.equal(agentPage.status, 200);
-    assert.match(agentPageHtml, /The model Steve uses when responding to Telegram messages and running background tasks for this member/);
+    assert.match(agentPageHtml, /The model Kellix uses when responding to Telegram messages and running background tasks for this member/);
     assert.match(agentPageHtml, /openai\/gpt-5\.4-mini/);
     assert.match(agentPageHtml, /No models available yet\. Start the agent first/);
   });
@@ -835,7 +835,7 @@ async function run() {
   const restoredWeb = startRestoredWebServer(restoredVault, 0, { listen: false, telegramFetch });
   const restoredSetupToken = restoredWeb.setupUrl ? new URL(restoredWeb.setupUrl).searchParams.get("token") : null;
   const restoredSetupPage = await restoredWeb.app.request(`/setup?token=${restoredSetupToken}`);
-  const restoredSetupCookie = getCookieValue(restoredSetupPage, "steve_bootstrap");
+  const restoredSetupCookie = getCookieValue(restoredSetupPage, "kellix_bootstrap");
   const restoredSetupHtml = await restoredSetupPage.text();
   const restoredCsrf = extractCsrf(restoredSetupHtml);
 
@@ -862,14 +862,16 @@ async function run() {
 
   test("restored setup: preserves restored data and only adds dashboard auth", () => {
     assert.equal(restoredSetupPost.status, 200);
-    assert.ok(restoredVaultAfter.get("steve/admin_auth"));
+    assert.ok(restoredVaultAfter.get("kellix/admin_auth"));
     assert.equal(restoredVaultAfter.getString("system/telegram/bot_token"), "restored-bot-token");
-    assert.deepEqual(restoredVaultAfter.get("steve/users"), {
+    assert.deepEqual(restoredVaultAfter.get("kellix/users"), {
       robert: {
         name: "robert",
         channels: {},
       },
     });
+    assert.equal(restoredVaultAfter.get("steve/admin_auth"), null);
+    assert.equal(restoredVaultAfter.get("steve/users"), null);
   });
 
   // Cleanup

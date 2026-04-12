@@ -1,36 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP=steve
-REPO_SLUG=${STEVE_REPO:-robertbrunhage/steve}
-DEFAULT_REF=${STEVE_REF:-}
+APP=kellix
+REPO_SLUG=${KELLIX_REPO:-${STEVE_REPO:-robertbrunhage/kellix}}
+DEFAULT_REF=${KELLIX_REF:-${STEVE_REF:-}}
 
-INSTALL_ROOT=${STEVE_INSTALL_DIR:-$HOME/.steve}
+INSTALL_ROOT=${KELLIX_INSTALL_DIR:-${STEVE_INSTALL_DIR:-$HOME/.kellix}}
 BIN_DIR="$INSTALL_ROOT/bin"
 COMPOSE_FILE="$INSTALL_ROOT/docker-compose.yml"
 AGENTS_COMPOSE_FILE="$INSTALL_ROOT/agents.compose.yml"
 ENV_FILE="$INSTALL_ROOT/.env"
-WRAPPER_PATH="$BIN_DIR/steve"
+WRAPPER_PATH="$BIN_DIR/kellix"
 DEFAULT_HOSTNAME=localhost
-DEFAULT_PROJECT=steve
+DEFAULT_PROJECT=kellix
 DEFAULT_WEB_PORT=7838
 DEFAULT_OPENCODE_PORT_BASE=3456
 DEFAULT_BROWSER_VIEWER_PORT_BASE=6080
 DEFAULT_BROWSER_VIEWER_PORT_MAX=6119
-DEFAULT_STEVE_IMAGE_REPO=ghcr.io/robertbrunhage/steve
-DEFAULT_OPENCODE_IMAGE_REPO=ghcr.io/robertbrunhage/steve-opencode
+DEFAULT_KELLIX_IMAGE_REPO=ghcr.io/robertbrunhage/kellix
+DEFAULT_OPENCODE_IMAGE_REPO=ghcr.io/robertbrunhage/kellix-opencode
 DEFAULT_TELEGRAM_API_BASE=https://api.telegram.org
 
 requested_ref="$DEFAULT_REF"
 no_modify_path=false
 refresh_wrapper_only=false
 RAW_BASE=""
-DEFAULT_STEVE_IMAGE=""
+DEFAULT_KELLIX_IMAGE=""
 DEFAULT_OPENCODE_IMAGE=""
 
 usage() {
     cat <<EOF
-Steve Installer
+Kellix Installer
 
 Usage: install.sh [options]
 
@@ -42,8 +42,8 @@ Options:
                          Internal: rewrite the installed wrapper only
 
 Examples:
-    curl -fsSL https://raw.githubusercontent.com/robertbrunhage/steve/main/install.sh | bash
-    curl -fsSL https://raw.githubusercontent.com/robertbrunhage/steve/main/install.sh | bash -s -- --ref main
+    curl -fsSL https://raw.githubusercontent.com/robertbrunhage/kellix/main/install.sh | bash
+    curl -fsSL https://raw.githubusercontent.com/robertbrunhage/kellix/main/install.sh | bash -s -- --ref main
 EOF
 }
 
@@ -124,7 +124,7 @@ resolve_requested_ref() {
 apply_release_ref() {
     resolve_requested_ref
     RAW_BASE="https://raw.githubusercontent.com/$REPO_SLUG/$requested_ref"
-    DEFAULT_STEVE_IMAGE=$(image_for_ref "$DEFAULT_STEVE_IMAGE_REPO" "$requested_ref")
+    DEFAULT_KELLIX_IMAGE=$(image_for_ref "$DEFAULT_KELLIX_IMAGE_REPO" "$requested_ref")
     DEFAULT_OPENCODE_IMAGE=$(image_for_ref "$DEFAULT_OPENCODE_IMAGE_REPO" "$requested_ref")
 }
 
@@ -148,19 +148,19 @@ write_env() {
     local host
     host=$(detect_hostname)
 
-    cat > "$ENV_FILE" <<EOF
-STEVE_RELEASE_REF=$requested_ref
-STEVE_VERSION=$requested_ref
-STEVE_PROJECT=$DEFAULT_PROJECT
-STEVE_WEB_PORT=$DEFAULT_WEB_PORT
-STEVE_OPENCODE_PORT_BASE=$DEFAULT_OPENCODE_PORT_BASE
-STEVE_BROWSER_VIEWER_PORT_BASE=$DEFAULT_BROWSER_VIEWER_PORT_BASE
-STEVE_BROWSER_VIEWER_PORT_MAX=$DEFAULT_BROWSER_VIEWER_PORT_MAX
-STEVE_IMAGE=$DEFAULT_STEVE_IMAGE
-STEVE_OPENCODE_IMAGE=$DEFAULT_OPENCODE_IMAGE
-STEVE_STATE_DIR_HOST=$INSTALL_ROOT
-STEVE_TELEGRAM_API_BASE=$DEFAULT_TELEGRAM_API_BASE
-STEVE_HOSTNAME=$host
+cat > "$ENV_FILE" <<EOF
+KELLIX_RELEASE_REF=$requested_ref
+KELLIX_VERSION=$requested_ref
+KELLIX_PROJECT=$DEFAULT_PROJECT
+KELLIX_WEB_PORT=$DEFAULT_WEB_PORT
+KELLIX_OPENCODE_PORT_BASE=$DEFAULT_OPENCODE_PORT_BASE
+KELLIX_BROWSER_VIEWER_PORT_BASE=$DEFAULT_BROWSER_VIEWER_PORT_BASE
+KELLIX_BROWSER_VIEWER_PORT_MAX=$DEFAULT_BROWSER_VIEWER_PORT_MAX
+KELLIX_IMAGE=$DEFAULT_KELLIX_IMAGE
+KELLIX_OPENCODE_IMAGE=$DEFAULT_OPENCODE_IMAGE
+KELLIX_STATE_DIR_HOST=$INSTALL_ROOT
+KELLIX_TELEGRAM_API_BASE=$DEFAULT_TELEGRAM_API_BASE
+KELLIX_HOSTNAME=$host
 EOF
 }
 
@@ -190,9 +190,9 @@ DEFAULT_WEB_PORT="${DEFAULT_WEB_PORT}"
 DEFAULT_BROWSER_VIEWER_PORT_BASE="${DEFAULT_BROWSER_VIEWER_PORT_BASE}"
 DEFAULT_BROWSER_VIEWER_PORT_MAX="${DEFAULT_BROWSER_VIEWER_PORT_MAX}"
 DEFAULT_OPENCODE_PORT_BASE="${DEFAULT_OPENCODE_PORT_BASE}"
-DEFAULT_STEVE_IMAGE="${DEFAULT_STEVE_IMAGE}"
+DEFAULT_KELLIX_IMAGE="${DEFAULT_KELLIX_IMAGE}"
 DEFAULT_OPENCODE_IMAGE="${DEFAULT_OPENCODE_IMAGE}"
-DEFAULT_STEVE_IMAGE_REPO="${DEFAULT_STEVE_IMAGE_REPO}"
+DEFAULT_KELLIX_IMAGE_REPO="${DEFAULT_KELLIX_IMAGE_REPO}"
 DEFAULT_OPENCODE_IMAGE_REPO="${DEFAULT_OPENCODE_IMAGE_REPO}"
 DEFAULT_TELEGRAM_API_BASE="${DEFAULT_TELEGRAM_API_BASE}"
 DEFAULT_HOSTNAME="${DEFAULT_HOSTNAME}"
@@ -223,7 +223,7 @@ fi
 
 docker_compose() {
     ensure_agents_compose_file
-    docker compose --project-name "${STEVE_PROJECT:-$DEFAULT_PROJECT}" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$AGENTS_COMPOSE_FILE" "$@"
+    docker compose --project-name "${KELLIX_PROJECT:-$DEFAULT_PROJECT}" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$AGENTS_COMPOSE_FILE" "$@"
 }
 
 ensure_agents_compose_file() {
@@ -255,10 +255,10 @@ set_env_value() {
 
 apply_release_ref() {
     local ref=$1
-    set_env_value STEVE_RELEASE_REF "$ref"
-    set_env_value STEVE_VERSION "$ref"
-    set_env_value STEVE_IMAGE "$(image_for_ref "$DEFAULT_STEVE_IMAGE_REPO" "$ref")"
-    set_env_value STEVE_OPENCODE_IMAGE "$(image_for_ref "$DEFAULT_OPENCODE_IMAGE_REPO" "$ref")"
+    set_env_value KELLIX_RELEASE_REF "$ref"
+    set_env_value KELLIX_VERSION "$ref"
+    set_env_value KELLIX_IMAGE "$(image_for_ref "$DEFAULT_KELLIX_IMAGE_REPO" "$ref")"
+    set_env_value KELLIX_OPENCODE_IMAGE "$(image_for_ref "$DEFAULT_OPENCODE_IMAGE_REPO" "$ref")"
 }
 
 show_url() {
@@ -266,8 +266,8 @@ show_url() {
     host=localhost
     port=$DEFAULT_WEB_PORT
     if [[ -f "$ENV_FILE" ]]; then
-        host=$(grep '^STEVE_HOSTNAME=' "$ENV_FILE" | cut -d= -f2- || true)
-        port=$(grep '^STEVE_WEB_PORT=' "$ENV_FILE" | cut -d= -f2- || true)
+        host=$(grep '^KELLIX_HOSTNAME=' "$ENV_FILE" | cut -d= -f2- || true)
+        port=$(grep '^KELLIX_WEB_PORT=' "$ENV_FILE" | cut -d= -f2- || true)
     fi
     if [[ -z "$host" ]]; then
         host=localhost
@@ -289,10 +289,10 @@ ensure_files() {
         exit 1
     fi
     if [[ ! -f "$ENV_FILE" ]]; then
-        printf 'STEVE_RELEASE_REF=%s\nSTEVE_VERSION=%s\nSTEVE_PROJECT=%s\nSTEVE_WEB_PORT=%s\nSTEVE_OPENCODE_PORT_BASE=%s\nSTEVE_BROWSER_VIEWER_PORT_BASE=%s\nSTEVE_BROWSER_VIEWER_PORT_MAX=%s\nSTEVE_IMAGE=%s\nSTEVE_OPENCODE_IMAGE=%s\nSTEVE_STATE_DIR_HOST=%s\nSTEVE_TELEGRAM_API_BASE=%s\nSTEVE_HOSTNAME=%s\n' "$REF" "$REF" "$DEFAULT_PROJECT" "$DEFAULT_WEB_PORT" "$DEFAULT_OPENCODE_PORT_BASE" "$DEFAULT_BROWSER_VIEWER_PORT_BASE" "$DEFAULT_BROWSER_VIEWER_PORT_MAX" "$DEFAULT_STEVE_IMAGE" "$DEFAULT_OPENCODE_IMAGE" "$INSTALL_ROOT" "$DEFAULT_TELEGRAM_API_BASE" "$DEFAULT_HOSTNAME" > "$ENV_FILE"
+        printf 'KELLIX_RELEASE_REF=%s\nKELLIX_VERSION=%s\nKELLIX_PROJECT=%s\nKELLIX_WEB_PORT=%s\nKELLIX_OPENCODE_PORT_BASE=%s\nKELLIX_BROWSER_VIEWER_PORT_BASE=%s\nKELLIX_BROWSER_VIEWER_PORT_MAX=%s\nKELLIX_IMAGE=%s\nKELLIX_OPENCODE_IMAGE=%s\nKELLIX_STATE_DIR_HOST=%s\nKELLIX_TELEGRAM_API_BASE=%s\nKELLIX_HOSTNAME=%s\n' "$REF" "$REF" "$DEFAULT_PROJECT" "$DEFAULT_WEB_PORT" "$DEFAULT_OPENCODE_PORT_BASE" "$DEFAULT_BROWSER_VIEWER_PORT_BASE" "$DEFAULT_BROWSER_VIEWER_PORT_MAX" "$DEFAULT_KELLIX_IMAGE" "$DEFAULT_OPENCODE_IMAGE" "$INSTALL_ROOT" "$DEFAULT_TELEGRAM_API_BASE" "$DEFAULT_HOSTNAME" > "$ENV_FILE"
     fi
-    if [[ -z "$(get_env_value STEVE_STATE_DIR_HOST)" ]]; then
-        set_env_value STEVE_STATE_DIR_HOST "$INSTALL_ROOT"
+    if [[ -z "$(get_env_value KELLIX_STATE_DIR_HOST)" ]]; then
+        set_env_value KELLIX_STATE_DIR_HOST "$INSTALL_ROOT"
     fi
     ensure_agents_compose_file
 }
@@ -302,28 +302,28 @@ refresh_wrapper() {
     local tmp
     tmp=$(mktemp)
     curl -fsSL "https://raw.githubusercontent.com/$REPO_SLUG/$ref/install.sh" -o "$tmp"
-    STEVE_INSTALL_DIR="$INSTALL_ROOT" bash "$tmp" --ref "$ref" --refresh-wrapper-only --no-modify-path
+    KELLIX_INSTALL_DIR="$INSTALL_ROOT" bash "$tmp" --ref "$ref" --refresh-wrapper-only --no-modify-path
     rm -f "$tmp"
 }
 
 usage() {
     cat <<USAGE
-Steve helper
+Kellix helper
 
-Usage: steve <command>
+Usage: kellix <command>
 
 Commands:
-  up        Start Steve in the background
-  down      Stop Steve
-  restart   Restart Steve
+  up        Start Kellix in the background
+  down      Stop Kellix
+  restart   Restart Kellix
   logs      Follow logs
   ps        Show container status
   backup    Create encrypted backup
   restore   Restore encrypted backup
   pull      Pull the currently configured images
-  update    Update Steve to the newest published release
+  update    Update Kellix to the newest published release
   update --yolo
-            Update Steve to the latest main build
+            Update Kellix to the latest main build
   update skills [--force]
             Copy bundled skills into every user's workspace
   setup-url Print the one-time setup URL
@@ -338,11 +338,11 @@ update_skills() {
         if [[ "$1" == "--force" ]]; then
             args+=("--force")
         else
-            printf 'Usage: steve update skills [--force]\n' >&2
+            printf 'Usage: kellix update skills [--force]\n' >&2
             exit 1
         fi
     fi
-    docker_compose run --rm --no-deps steve node dist/update-skills.js "${args[@]}"
+    docker_compose run --rm --no-deps kellix node dist/update-skills.js "${args[@]}"
 }
 
 run_image_tool() {
@@ -352,61 +352,61 @@ run_image_tool() {
     shift 3
     local image
     local env_args=()
-    image=$(get_env_value STEVE_IMAGE)
+    image=$(get_env_value KELLIX_IMAGE)
     if [[ -z "$image" ]]; then
-        image=$DEFAULT_STEVE_IMAGE
+        image=$DEFAULT_KELLIX_IMAGE
     fi
-    if [[ -n "${STEVE_BACKUP_PASSWORD:-}" ]]; then
-        env_args+=( -e "STEVE_BACKUP_PASSWORD=$STEVE_BACKUP_PASSWORD" )
+    if [[ -n "${KELLIX_BACKUP_PASSWORD:-}" ]]; then
+        env_args+=( -e "KELLIX_BACKUP_PASSWORD=$KELLIX_BACKUP_PASSWORD" )
     fi
-    if [[ -n "${STEVE_BACKUP_OUTPUT_PATH:-}" ]]; then
-        env_args+=( -e "STEVE_BACKUP_OUTPUT_PATH=$STEVE_BACKUP_OUTPUT_PATH" )
+    if [[ -n "${KELLIX_BACKUP_OUTPUT_PATH:-}" ]]; then
+        env_args+=( -e "KELLIX_BACKUP_OUTPUT_PATH=$KELLIX_BACKUP_OUTPUT_PATH" )
     fi
-    if [[ -n "${STEVE_BACKUP_OUTPUT_DIR:-}" ]]; then
-        env_args+=( -e "STEVE_BACKUP_OUTPUT_DIR=$STEVE_BACKUP_OUTPUT_DIR" )
+    if [[ -n "${KELLIX_BACKUP_OUTPUT_DIR:-}" ]]; then
+        env_args+=( -e "KELLIX_BACKUP_OUTPUT_DIR=$KELLIX_BACKUP_OUTPUT_DIR" )
     fi
     docker run --rm -i \
         --user root \
         -w "$workdir" \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v "$mount_dir":"$mount_target" \
-        -e STEVE_PROJECT="${STEVE_PROJECT:-$DEFAULT_PROJECT}" \
-        -e STEVE_CLI_COMMAND="steve" \
+        -e KELLIX_PROJECT="${KELLIX_PROJECT:-$DEFAULT_PROJECT}" \
+        -e KELLIX_CLI_COMMAND="kellix" \
         ${env_args[@]+"${env_args[@]}"} \
         "$image" "$@"
 }
 
 ensure_backup_password() {
-    if [[ -n "${STEVE_BACKUP_PASSWORD:-}" ]]; then
+    if [[ -n "${KELLIX_BACKUP_PASSWORD:-}" ]]; then
         return
     fi
     if [[ ! -t 0 ]]; then
-        printf 'Error: backup password required. Set STEVE_BACKUP_PASSWORD when running non-interactively.\n' >&2
+        printf 'Error: backup password required. Set KELLIX_BACKUP_PASSWORD when running non-interactively.\n' >&2
         exit 1
     fi
-    read -r -s -p 'Backup password: ' STEVE_BACKUP_PASSWORD
+    read -r -s -p 'Backup password: ' KELLIX_BACKUP_PASSWORD
     printf '\n'
-    export STEVE_BACKUP_PASSWORD
+    export KELLIX_BACKUP_PASSWORD
 }
 
-backup_steve() {
+backup_kellix() {
     ensure_backup_password
     local target=${1:-}
     local host_dir host_file
     if [[ -n "$target" ]]; then
         host_dir=$(cd "$(dirname "$target")" && pwd)
         host_file=$(basename "$target")
-        STEVE_BACKUP_OUTPUT_PATH="$host_dir/$host_file" run_image_tool /app "$host_dir" /backup node dist/backup.js "/backup/$host_file"
+        KELLIX_BACKUP_OUTPUT_PATH="$host_dir/$host_file" run_image_tool /app "$host_dir" /backup node dist/backup.js "/backup/$host_file"
     else
         host_dir="$PWD"
-        host_file="steve-backup-$(date +%F).enc"
-        STEVE_BACKUP_OUTPUT_PATH="$host_dir/$host_file" run_image_tool /app "$host_dir" /backup node dist/backup.js "/backup/$host_file"
+        host_file="kellix-backup-$(date +%F).enc"
+        KELLIX_BACKUP_OUTPUT_PATH="$host_dir/$host_file" run_image_tool /app "$host_dir" /backup node dist/backup.js "/backup/$host_file"
     fi
 }
 
-restore_steve() {
+restore_kellix() {
     if [[ -z "${1:-}" ]]; then
-        printf 'Usage: steve restore <backup-file>\n' >&2
+        printf 'Usage: kellix restore <backup-file>\n' >&2
         exit 1
     fi
     ensure_backup_password
@@ -423,15 +423,15 @@ show_setup_url() {
     host=localhost
     port=$DEFAULT_WEB_PORT
     if [[ -f "$ENV_FILE" ]]; then
-        host=$(grep '^STEVE_HOSTNAME=' "$ENV_FILE" | cut -d= -f2- || true)
-        port=$(grep '^STEVE_WEB_PORT=' "$ENV_FILE" | cut -d= -f2- || true)
+        host=$(grep '^KELLIX_HOSTNAME=' "$ENV_FILE" | cut -d= -f2- || true)
+        port=$(grep '^KELLIX_WEB_PORT=' "$ENV_FILE" | cut -d= -f2- || true)
     fi
     if [[ -z "$port" ]]; then
         port=$DEFAULT_WEB_PORT
     fi
-    token=$(docker_compose exec -T steve sh -lc 'if [ -f /data/setup-token.json ]; then sed -n "s/.*\"token\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" /data/setup-token.json; fi' 2>/dev/null || true)
+    token=$(docker_compose exec -T kellix sh -lc 'if [ -f /data/setup-token.json ]; then sed -n "s/.*\"token\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" /data/setup-token.json; fi' 2>/dev/null || true)
     if [[ -z "$token" ]]; then
-        printf 'No pending setup token found. Steve may already be configured.\n' >&2
+        printf 'No pending setup token found. Kellix may already be configured.\n' >&2
         exit 1
     fi
     if [[ -z "$host" || "$host" == "localhost" ]]; then
@@ -444,7 +444,7 @@ show_setup_url() {
 maybe_show_setup_url() {
     local token=""
     for _ in $(seq 1 15); do
-        token=$(docker_compose exec -T steve sh -lc 'if [ -f /data/setup-token.json ]; then sed -n "s/.*\"token\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" /data/setup-token.json; fi' 2>/dev/null || true)
+        token=$(docker_compose exec -T kellix sh -lc 'if [ -f /data/setup-token.json ]; then sed -n "s/.*\"token\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" /data/setup-token.json; fi' 2>/dev/null || true)
         if [[ -n "$token" ]]; then
             show_setup_url
             return
@@ -477,10 +477,10 @@ case "$cmd" in
         docker_compose ps
         ;;
     backup)
-        backup_steve "${2:-}"
+        backup_kellix "${2:-}"
         ;;
     restore)
-        restore_steve "${2:-}"
+        restore_kellix "${2:-}"
         ;;
     pull)
         docker_compose pull
@@ -495,9 +495,9 @@ case "$cmd" in
             docker_compose pull
             docker_compose up -d
             if ! refresh_wrapper "$next_ref"; then
-                printf 'Warning: updated runtime to %s, but could not refresh the local steve command wrapper. Rerun the installer if wrapper behavior seems stale.\n' "$next_ref" >&2
+                printf 'Warning: updated runtime to %s, but could not refresh the local kellix command wrapper. Rerun the installer if wrapper behavior seems stale.\n' "$next_ref" >&2
             fi
-            printf 'YOLO updated Steve to %s\n' "$next_ref"
+            printf 'YOLO updated Kellix to %s\n' "$next_ref"
             show_url
             maybe_show_setup_url
         else
@@ -507,9 +507,9 @@ case "$cmd" in
             docker_compose pull
             docker_compose up -d
             if ! refresh_wrapper "$next_ref"; then
-                printf 'Warning: updated runtime to %s, but could not refresh the local steve command wrapper. Rerun the installer if wrapper behavior seems stale.\n' "$next_ref" >&2
+                printf 'Warning: updated runtime to %s, but could not refresh the local kellix command wrapper. Rerun the installer if wrapper behavior seems stale.\n' "$next_ref" >&2
             fi
-            printf 'Updated Steve to %s\n' "$next_ref"
+            printf 'Updated Kellix to %s\n' "$next_ref"
             show_url
             maybe_show_setup_url
         fi
@@ -547,7 +547,7 @@ add_to_path() {
     fi
 
     {
-        printf '\n# steve\n'
+        printf '\n# kellix\n'
         printf '%s\n' "$command"
     } >> "$config_file"
 }
@@ -592,7 +592,7 @@ maybe_show_setup_url_install() {
     port=$DEFAULT_WEB_PORT
 
     for _ in $(seq 1 15); do
-        token=$(docker compose --project-name "$DEFAULT_PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$AGENTS_COMPOSE_FILE" exec -T steve sh -lc 'if [ -f /data/setup-token.json ]; then sed -n "s/.*\"token\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" /data/setup-token.json; fi' 2>/dev/null || true)
+        token=$(docker compose --project-name "$DEFAULT_PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$AGENTS_COMPOSE_FILE" exec -T kellix sh -lc 'if [ -f /data/setup-token.json ]; then sed -n "s/.*\"token\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" /data/setup-token.json; fi' 2>/dev/null || true)
         if [[ -n "$token" ]]; then
             if [[ "$host" == "localhost" ]]; then
                 printf 'Setup URL: http://localhost:%s/setup?token=%s\n' "$port" "$token"
@@ -639,10 +639,10 @@ ensure_agents_compose_file_install
 write_wrapper
 maybe_update_path
 
-print_step "Starting Steve"
+print_step "Starting Kellix"
 docker compose --project-name "$DEFAULT_PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$AGENTS_COMPOSE_FILE" up -d
 
-printf '\nSteve is installed.\n'
+printf '\nKellix is installed.\n'
 printf 'Version: %s\n' "$requested_ref"
 printf 'Run `%s up` to start again later.\n' "$APP"
 printf 'Run `%s logs` to inspect logs.\n' "$APP"

@@ -197,7 +197,7 @@ export class PlaywrightBrowserService implements BrowserService {
       ok: false,
       status: "error",
       url: input.url,
-      message: "This site likely needs the attached local Chrome flow, but this Steve install does not have the remote browser companion available.",
+      message: "This site likely needs the attached local Chrome flow, but this Kellix install does not have the remote browser companion available.",
       error: "remote_unavailable",
     };
   }
@@ -207,7 +207,7 @@ export class PlaywrightBrowserService implements BrowserService {
       ok: false,
       status: "error",
       url: input.url,
-      message: `This site likely needs ${input.userName}'s attached Chrome, but that user has not attached a local browser yet. Open the user's page in Steve and attach local Chrome first.`,
+      message: `This site likely needs ${input.userName}'s attached Chrome, but that user has not attached a local browser yet. Open the user's page in Kellix and attach local Chrome first.`,
       error: "remote_not_configured",
     };
   }
@@ -215,7 +215,7 @@ export class PlaywrightBrowserService implements BrowserService {
   private remoteUrl(path: string): string {
     const settings = getBrowserSettings();
     if (!settings.remoteEnabled || !settings.remoteBaseUrl) {
-      throw new Error("Remote browser companion is not available on this Steve install");
+      throw new Error("Remote browser companion is not available on this Kellix install");
     }
     return `${settings.remoteBaseUrl.replace(/\/$/, "")}${path}`;
   }
@@ -229,7 +229,7 @@ export class PlaywrightBrowserService implements BrowserService {
         body: JSON.stringify(body),
       });
     } catch {
-      throw new Error("Remote browser companion is not running. Start it with `steve browser up`.");
+      throw new Error("Remote browser companion is not running. Start it with `kellix browser up`.");
     }
     if (!res.ok) {
       throw new Error(`Remote browser companion request failed: ${res.status}`);

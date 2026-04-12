@@ -29,7 +29,7 @@ async function login(testEnv: ReturnType<typeof createTestEnv>, jar: CookieJar) 
 async function waitForPsEntry(cwd: string, testEnv: ReturnType<typeof createTestEnv>, value: string, present: boolean) {
   const started = Date.now();
   while (Date.now() - started < 120000) {
-    const result = await runCommand("./steve", ["ps"], {
+    const result = await runCommand("./kellix", ["ps"], {
       cwd,
       env: testEnv.env,
       capture: true,
@@ -42,7 +42,7 @@ async function waitForPsEntry(cwd: string, testEnv: ReturnType<typeof createTest
     }
     await sleep(2000);
   }
-  throw new Error(`Timed out waiting for ./steve ps to ${present ? "include" : "exclude"} ${value}`);
+  throw new Error(`Timed out waiting for ./kellix ps to ${present ? "include" : "exclude"} ${value}`);
 }
 
 async function waitForUserStatus(testEnv: ReturnType<typeof createTestEnv>, jar: CookieJar, expected: string) {
@@ -64,10 +64,10 @@ async function main() {
   const jar = new CookieJar();
 
   try {
-    await runCommand("./steve", ["up"], { cwd, env: testEnv.env, timeoutMs: 600000 });
+    await runCommand("./kellix", ["up"], { cwd, env: testEnv.env, timeoutMs: 600000 });
     await waitFor(`http://127.0.0.1:${testEnv.webPort}/setup`);
 
-    const setupUrlResult = await runCommand("./steve", ["setup-url"], {
+    const setupUrlResult = await runCommand("./kellix", ["setup-url"], {
       cwd,
       env: testEnv.env,
       capture: true,
@@ -76,7 +76,7 @@ async function main() {
     assert.equal(setupUrlResult.code, 0);
     const setupUrlMatch = setupUrlResult.stdout.match(/http:\/\/[^\s]+/);
     if (!setupUrlMatch) {
-      throw new Error("Expected setup URL in ./steve setup-url output");
+      throw new Error("Expected setup URL in ./kellix setup-url output");
     }
     const setupUrl = new URL(setupUrlMatch[0]);
     setupUrl.hostname = "127.0.0.1";
@@ -121,8 +121,8 @@ async function main() {
     assert.ok(readFileSync(agentsComposePath, "utf-8").includes("opencode-robert"));
     await waitForUserStatus(testEnv, jar, "Running");
 
-    await runCommand("./steve", ["down"], { cwd, env: testEnv.env, timeoutMs: 120000 });
-    await runCommand("./steve", ["up"], { cwd, env: testEnv.env, timeoutMs: 600000 });
+    await runCommand("./kellix", ["down"], { cwd, env: testEnv.env, timeoutMs: 120000 });
+    await runCommand("./kellix", ["up"], { cwd, env: testEnv.env, timeoutMs: 600000 });
     await waitFor(`http://127.0.0.1:${testEnv.webPort}/login`);
     await login(testEnv, jar);
     await waitForPsEntry(cwd, testEnv, "opencode-robert", true);
@@ -143,8 +143,8 @@ async function main() {
     assert.ok(!readFileSync(agentsComposePath, "utf-8").includes("opencode-robert"));
     await waitForUserStatus(testEnv, jar, "Paused");
 
-    await runCommand("./steve", ["down"], { cwd, env: testEnv.env, timeoutMs: 120000 });
-    await runCommand("./steve", ["up"], { cwd, env: testEnv.env, timeoutMs: 600000 });
+    await runCommand("./kellix", ["down"], { cwd, env: testEnv.env, timeoutMs: 120000 });
+    await runCommand("./kellix", ["up"], { cwd, env: testEnv.env, timeoutMs: 600000 });
     await waitFor(`http://127.0.0.1:${testEnv.webPort}/login`);
     await login(testEnv, jar);
     await waitForPsEntry(cwd, testEnv, "opencode-robert", false);

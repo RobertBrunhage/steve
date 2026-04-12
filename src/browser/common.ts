@@ -1,6 +1,6 @@
 import type { Page } from "playwright-core";
 
-export const REF_ATTR = "data-steve-browser-ref";
+export const REF_ATTR = "data-kellix-browser-ref";
 
 export interface BrowserSnapshot {
   text: string;

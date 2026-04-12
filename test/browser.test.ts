@@ -5,12 +5,12 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 async function main() {
-  const tempDir = mkdtempSync(join(tmpdir(), "steve-browser-remote-test-"));
+  const tempDir = mkdtempSync(join(tmpdir(), "kellix-browser-remote-test-"));
   const port = 47899;
   let lastBody: Record<string, unknown> | null = null;
 
-  process.env.STEVE_DIR = tempDir;
-  process.env.STEVE_REMOTE_BROWSER_URL = `http://127.0.0.1:${port}`;
+  process.env.KELLIX_DIR = tempDir;
+  process.env.KELLIX_REMOTE_BROWSER_URL = `http://127.0.0.1:${port}`;
 
   const server = createServer(async (req, res) => {
     const body = await new Promise<string>((resolve) => {

@@ -12,7 +12,7 @@ export type UserAgentState = Record<string, UserAgentRecord>;
 
 const USER_AGENT_STATE_FILE = "opencode-agents.json";
 const USER_AGENT_COMPOSE_FILE = "agents.compose.yml";
-const DEFAULT_OPENCODE_IMAGE = "ghcr.io/robertbrunhage/steve-opencode:main";
+const DEFAULT_OPENCODE_IMAGE = "ghcr.io/robertbrunhage/kellix-opencode:main";
 
 function getUserAgentStatePath(): string {
   return join(config.dataDir, USER_AGENT_STATE_FILE);
@@ -110,8 +110,8 @@ function renderComposeServices(state: UserAgentState): string[] {
     if (!record.enabled) continue;
     lines.push(
       `  opencode-${userName}:`,
-      "    image: ${STEVE_OPENCODE_IMAGE:-" + DEFAULT_OPENCODE_IMAGE + "}",
-      `    container_name: \${STEVE_PROJECT:-steve}-opencode-${userName}`,
+      "    image: ${KELLIX_OPENCODE_IMAGE:-" + DEFAULT_OPENCODE_IMAGE + "}",
+      `    container_name: \${KELLIX_PROJECT:-kellix}-opencode-${userName}`,
       "    restart: unless-stopped",
       '    command: ["serve", "--port", "3456", "--hostname", "0.0.0.0"]',
       "    working_dir: /data",
@@ -121,21 +121,21 @@ function renderComposeServices(state: UserAgentState): string[] {
       '      - "host.docker.internal:host-gateway"',
       "    volumes:",
       "      - type: volume",
-      "        source: steve-data",
+      "        source: kellix-data",
       "        target: /data",
       "        volume:",
       `          subpath: users/${userName}`,
       "      - type: volume",
-      "        source: steve-data",
+      "        source: kellix-data",
       "        target: /data/shared",
       "        volume:",
       "          subpath: shared",
       "      - type: volume",
-      "        source: steve-data",
+      "        source: kellix-data",
       "        target: /root/.local/share/opencode",
       "        volume:",
       `          subpath: users/${userName}/.opencode-data`,
-      "    networks: [steve-net]",
+      "    networks: [kellix-net]",
       "",
     );
   }
@@ -152,13 +152,13 @@ export function renderUserAgentsCompose(state: UserAgentState): string {
     "services:",
     ...services,
     "volumes:",
-    "  steve-data:",
-    "    name: ${STEVE_PROJECT:-steve}_steve-data",
+    "  kellix-data:",
+    "    name: ${KELLIX_PROJECT:-kellix}_kellix-data",
     "    external: true",
     "",
     "networks:",
-    "  steve-net:",
-    "    name: ${STEVE_PROJECT:-steve}_steve-net",
+    "  kellix-net:",
+    "    name: ${KELLIX_PROJECT:-kellix}_kellix-net",
     "    external: true",
     "",
   ].join("\n");

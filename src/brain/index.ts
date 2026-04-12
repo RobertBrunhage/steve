@@ -1,5 +1,6 @@
 import * as p from "@clack/prompts";
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/client";
+import { APP_NAME, APP_SLUG, LEGACY_APP_NAME } from "../brand.js";
 import { getRuntime, getTelegramApiBase } from "../config.js";
 import { getTelegramChatId, toUserSlug } from "../users.js";
 
@@ -68,8 +69,9 @@ export class Brain {
   private async findExistingSessionId(oc: OpencodeClient, userName: string): Promise<string | null> {
     try {
       const list = await oc.session.list({});
+      const titles = new Set([`${APP_NAME} - ${userName}`, `${LEGACY_APP_NAME} - ${userName}`]);
       const existing = (list.data as any[])?.find(
-        (s: any) => s.title === `Steve - ${userName}` && !s.time?.archived,
+        (s: any) => titles.has(String(s.title || "")) && !s.time?.archived,
       );
       return existing?.id ? String(existing.id) : null;
     } catch {
@@ -78,7 +80,7 @@ export class Brain {
   }
 
   private async createSessionId(oc: OpencodeClient, userName: string): Promise<string> {
-    const res = await oc.session.create({ body: { title: `Steve - ${userName}` } });
+    const res = await oc.session.create({ body: { title: `${APP_NAME} - ${userName}` } });
     if (!res.data?.id) {
       throw new Error("Failed to create session");
     }
@@ -134,7 +136,7 @@ export class Brain {
 
     return oc.session.prompt({
       path: { id: sessionId },
-      body: { parts, agent: "steve", model },
+      body: { parts, agent: APP_SLUG, model },
     });
   }
 
