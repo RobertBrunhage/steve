@@ -1,7 +1,7 @@
 ---
 import Layout from '../layouts/Layout.astro';
 
-const installCommand = 'curl -fsSL https://raw.githubusercontent.com/robertbrunhage/steve/main/install.sh | bash';
+const installCommand = 'curl -fsSL https://raw.githubusercontent.com/robertbrunhage/kellix/main/install.sh | bash';
 ---
 
 <Layout
@@ -11,10 +11,11 @@ const installCommand = 'curl -fsSL https://raw.githubusercontent.com/robertbrunh
 	<main class="page">
 		<section class="hero">
 			<p class="eyebrow">Kellix</p>
-			<h1>The self-hosted Telegram assistant for your home.</h1>
+			<h1>Your Telegram assistant for health, goals, and life at home.</h1>
 			<p class="lead">
-				Kellix helps your household remember things, run workflows, and manage real setup without
-				turning chat into a place where credentials get pasted around.
+				Track calories, workouts, weight, reminders, routines, and whatever else your household
+				needs. Kellix runs in your own environment, with each user getting an isolated agent that
+				can be extended with tools, scripts, and integrations.
 			</p>
 
 			<div class="install">
@@ -29,14 +30,13 @@ const installCommand = 'curl -fsSL https://raw.githubusercontent.com/robertbrunh
 		</section>
 	</main>
 
-	<script is:inline>
+	<script is:inline define:vars={{ installCommand }}>
 		const button = document.querySelector('[data-copy-command]');
 		const label = document.querySelector('[data-copy-label]');
-		const command = {JSON.stringify(installCommand)};
 
 		button?.addEventListener('click', async () => {
 			try {
-				await navigator.clipboard.writeText(command);
+				await navigator.clipboard.writeText(installCommand);
 				if (label) label.textContent = 'Copied';
 				window.setTimeout(() => {
 					if (label) label.textContent = 'Copy';
@@ -53,18 +53,13 @@ const installCommand = 'curl -fsSL https://raw.githubusercontent.com/robertbrunh
 
 <style>
 	.page {
-		padding: 32px 20px 72px;
-	}
-
-	.hero,
-	.grid {
-		max-width: 1120px;
-		margin: 0 auto;
+		padding: 24px 20px;
 	}
 
 	.hero {
-		padding: 96px 0;
-		min-height: 100vh;
+		max-width: 1120px;
+		margin: 0 auto;
+		min-height: calc(100vh - 48px);
 		display: flex;
 		flex-direction: column;
 		justify-content: center;
@@ -98,8 +93,8 @@ const installCommand = 'curl -fsSL https://raw.githubusercontent.com/robertbrunh
 
 	.install {
 		width: min(100%, 860px);
-		margin-top: 36px;
-		padding: 22px;
+		margin-top: 32px;
+		padding: 20px;
 		border: 1px solid rgba(245, 247, 251, 0.1);
 		border-radius: 24px;
 		background: rgba(8, 18, 33, 0.62);
@@ -160,7 +155,7 @@ const installCommand = 'curl -fsSL https://raw.githubusercontent.com/robertbrunh
 		}
 
 		.hero {
-			padding: 48px 0;
+			min-height: calc(100vh - 48px);
 		}
 
 		h1 {
@@ -174,6 +169,10 @@ const installCommand = 'curl -fsSL https://raw.githubusercontent.com/robertbrunh
 
 		.install {
 			padding: 16px;
+		}
+
+		.install-header {
+			align-items: flex-start;
 		}
 
 		pre {
