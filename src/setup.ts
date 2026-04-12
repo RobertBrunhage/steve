@@ -22,6 +22,18 @@ function createDirectories() {
   mkdirSync(config.sharedDir, { recursive: true });
 }
 
+function getDefaultProfileContent(userName: string) {
+  const templatePath = join(config.defaultSkillsDir, "personalization", "templates", "profile.md");
+  if (!existsSync(templatePath)) {
+    return `# Profile\n\n## Name\n${userName}\n`;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  return readFileSync(templatePath, "utf-8")
+    .replaceAll("{User}", userName)
+    .replaceAll("YYYY-MM-DD", today);
+}
+
 export function setupUserWorkspace(userName: string) {
   const userDir = join(config.usersDir, toUserSlug(userName));
   for (const sub of ["memory", "memory/daily", "memory/nutrition", "memory/training", "memory/body-measurements", "skills", ".opencode-data"]) {
@@ -30,7 +42,7 @@ export function setupUserWorkspace(userName: string) {
 
   const profilePath = join(userDir, "memory", "profile.md");
   if (!existsSync(profilePath)) {
-    writeFileSync(profilePath, `# Profile\n\n## Name\n${userName}\n`, "utf-8");
+    writeFileSync(profilePath, getDefaultProfileContent(userName), "utf-8");
   }
 
   // Sync project-controlled files

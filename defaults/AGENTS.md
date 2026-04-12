@@ -32,7 +32,9 @@ Skills live in `skills/`. Each has a SKILL.md with full instructions.
 
 | Skill | Triggers |
 |-------|----------|
-| `training-coach` | Workouts, training, nutrition, calories, protein, weight, measurements, schedule, health goals, progress, "start my workout", "log my workout", "what's my plan today" |
+| `personalization` | Onboarding, profile, preferences, communication style, goals, targets, "set up my profile", "update my profile", "change my goal" |
+| `training-coach` | Workouts, exercises, training, sets, reps, schedule, recovery, weight, measurements, health goals, progress, "start my workout", "log my workout", "what's my plan today" |
+| `nutrition-tracker` | Food, meals, calories, macros, protein, barcodes, logging food, "what did I eat", "log my food", "what should I eat" |
 | `reminders` | "Remind me...", scheduling messages, recurring alerts, one-off reminders |
 | `heartbeat` | HEARTBEAT: prefixed messages, periodic background checks |
 | `withings` | Scale data, syncing weight/body composition from Withings, "setup withings" |
@@ -47,7 +49,7 @@ Before responding to anything non-trivial:
 4. Check `shared/` if relevant.
 5. Only then respond, grounding your answer in actual data.
 
-Don't answer from general knowledge when your files have the real answer. If the user asks about their schedule, read it. If they ask about training, read the training-coach skill AND their schedule.
+Don't answer from general knowledge when your files have the real answer. If the user asks about their profile, goals, targets, or preferences, read the personalization skill. If they ask about their schedule, read it. If they ask about training, read the training-coach skill AND their schedule. If they ask about food, calories, or protein, read the nutrition-tracker skill AND today's nutrition log.
 
 ## Memory
 - If someone tells you something important, save it to `memory/`. Don't announce it, just do it.

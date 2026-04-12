@@ -73,11 +73,11 @@ async function main() {
 
     const files = calls[0]?.files ?? [];
     assert.equal(calls.length, 1);
-    assert.equal(calls[0]?.userMessage, "Snack is 2 out of 6 of these");
     assert.equal(calls[0]?.userName, "robert");
     assert.equal(files.length, 2);
     assert.equal(new Set(files).size, 2);
     assert.ok(files.every((file) => file.startsWith("/data/tmp/photo-") && file.endsWith(".jpg")));
+    assert.match(calls[0]?.userMessage ?? "", /^Snack is 2 out of 6 of these\n\nAttached file paths:\n- \/data\/tmp\/photo-.*\.jpg\n- \/data\/tmp\/photo-.*\.jpg$/);
     assert.deepEqual(replies, []);
     assert.deepEqual(readdirSync(join(tempDir, "users", "robert", "tmp")), []);
 

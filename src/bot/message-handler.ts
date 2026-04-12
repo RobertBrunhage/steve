@@ -53,9 +53,12 @@ function normalizeCaption(caption: string | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
-function getPhotoPrompt(caption: string | null, photoCount: number): string {
-  if (caption) return caption;
-  return photoCount > 1 ? "The user sent photos." : "The user sent a photo.";
+function getPhotoPrompt(caption: string | null, photoPaths: string[]): string {
+  const base = caption || (photoPaths.length > 1 ? "The user sent photos." : "The user sent a photo.");
+  const attachments = photoPaths.length > 0
+    ? `\n\nAttached file paths:\n${photoPaths.map((path) => `- ${path}`).join("\n")}`
+    : "";
+  return `${base}${attachments}`;
 }
 
 function appendPhotoActivity(userName: string, photoCount: number, caption: string | null) {
@@ -90,10 +93,11 @@ async function processPhotoMessage(
 
   const stopTyping = keepTyping(ctx);
   try {
+    const photoPaths = photos.map((photo) => photo.containerPath);
     await brain.think(
-      getPhotoPrompt(caption, photos.length),
+      getPhotoPrompt(caption, photoPaths),
       userName,
-      photos.map((photo) => photo.containerPath),
+      photoPaths,
     );
   } finally {
     stopTyping();

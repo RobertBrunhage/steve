@@ -149,7 +149,9 @@ async function run() {
 
   test("default skills copied into each user workspace", () => {
     const skills = readdirSync(join(testDir, "users", "testuser", "skills"));
+    assert.ok(skills.includes("personalization"), "personalization missing");
     assert.ok(skills.includes("training-coach"), "training-coach missing");
+    assert.ok(skills.includes("nutrition-tracker"), "nutrition-tracker missing");
     assert.ok(skills.includes("reminders"), "reminders missing");
   });
 
@@ -180,8 +182,9 @@ async function run() {
 
   test("profile created with current user name", () => {
     const profile = readFileSync(join(testDir, "users", "testuser", "memory", "profile.md"), "utf-8");
-    assert.match(profile, /## Name/);
-    assert.match(profile, /testuser/);
+    assert.match(profile, /## Personal Info/);
+    assert.match(profile, /\*\*Name:\*\* testuser/);
+    assert.match(profile, /## Preferences/);
   });
 
   test("opencode config generated", () => {
