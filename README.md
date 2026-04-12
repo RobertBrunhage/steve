@@ -1,12 +1,3 @@
-<p align="center">
-  <img src="assets/steve.gif" alt="Kellix" width="220">
-</p>
-
-<p align="center">
-  <strong>Your self-hosted household AI assistant.</strong><br>
-  Autonomous, OpenCode-powered, secret-safe by default.
-</p>
-
 # Kellix
 
 Kellix is a self-hosted household AI assistant you talk to on Telegram.
@@ -17,11 +8,11 @@ If Kellix needs credentials, it sends you straight to the right place in the das
 
 Think OpenClaw-style autonomy, but simpler, more household-focused, and easier to trust.
 
-## Why People Try Kellix
+## Why Kellix
 
-- **It feels like an assistant, not a chatbot.** Kellix can actually do things: run scripts, keep memory, manage schedules, and follow up later.
+- **It feels like an assistant, not a chatbot.** Kellix can do things: run scripts, keep memory, manage schedules, and follow up later, or even browse the web.
 - **It is built for real people, not one power user.** Each person gets their own isolated agent, memory, skills, and integrations.
-- **Secrets stay out of chat.** Kellix handles setup through the dashboard and injects credentials into scripts only when needed.
+- **Secrets stay out of chat.** Kellix handles setup through the dashboard and injects credentials into scripts only when needed. Your AI provider never sees your secrets.
 - **You can teach it new capabilities with markdown.** Skills are plain folders with a `SKILL.md` and optional scripts.
 - **It runs in your own environment.** Backups, restores, local hosting, and LAN access are all built in.
 
