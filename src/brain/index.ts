@@ -17,6 +17,10 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   pdf: "application/pdf",
 };
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // Direct Telegram API call as fallback when opencode fails entirely
 async function sendFallback(userName: string, message: string) {
   const rt = getRuntime();
@@ -236,7 +240,15 @@ export class Brain {
 
       const res = await oc.session.summarize({ path: { id: sessionId }, body: model });
       if (!res.error) {
-        this.sessions.set(key, sessionId);
+        // The OpenCode memory plugin records the compaction summary to disk from
+        // the session.compacted event. Give that handler a short window to fetch
+        // messages before removing the now-summarized chat history.
+        await sleep(2000);
+        const deleteRes = await oc.session.delete({ path: { id: sessionId } });
+        if (deleteRes.error) {
+          throw new Error(`OpenCode delete error: ${JSON.stringify(deleteRes.error)}`);
+        }
+        this.sessions.delete(key);
         return true;
       }
 

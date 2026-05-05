@@ -293,7 +293,7 @@ async function fireDailyCompaction(userName: string, brain: Brain) {
       p.log.info(`Daily compaction skipped for ${userName} (no primary session yet)`);
       return;
     }
-    p.log.info(`Daily compaction finished for ${userName}`);
+    p.log.info(`Daily compaction finished for ${userName}; primary session cleared`);
   } catch (error) {
     p.log.warn(`Daily compaction failed for ${userName}: ${error instanceof Error ? error.message : error}`);
   }
