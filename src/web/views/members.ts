@@ -29,6 +29,7 @@ export interface RenderUserOptions {
   recentActivity?: ActivityEntry[];
   currentModel?: string | null;
   modelProviders?: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }>;
+  opencodeImage?: string;
   attachedBrowser?: AttachedBrowserConfig | null;
   remoteBrowserAvailable?: boolean;
   browserCompanion?: BrowserCompanionStatus;
@@ -436,6 +437,22 @@ export function renderUserAgentPage(name: string, ocStatus: string, ocUrl: strin
     `,
   });
 
+  const runtimeSection = Section({
+    title: "OpenCode runtime",
+    description: "Pull the currently configured OpenCode image and recreate this member's agent. Kellix itself stays on its installed version.",
+    className: "mb-6",
+    children: `
+      <form method="POST" action="/users/${slug}/update-opencode" class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+        ${hiddenCsrf(csrfToken)}
+        <div class="min-w-0">
+          <p class="text-xs text-neutral-400">Use this after upstream OpenCode ships new models or provider updates.</p>
+          <p class="text-xs text-neutral-400 mt-1 truncate">Image: <code class="text-neutral-600">${escapeHtml(options?.opencodeImage || "configured OpenCode image")}</code></p>
+        </div>
+        ${Button({ variant: "secondary", children: "Update OpenCode" })}
+      </form>
+    `,
+  });
+
   const sessionsSection = ocUrl ? `
     <div class="bg-white border border-border rounded-lg overflow-hidden mb-6">
       <div class="flex items-center justify-between px-5 py-3 border-b border-border">
@@ -466,6 +483,7 @@ export function renderUserAgentPage(name: string, ocStatus: string, ocUrl: strin
   });
 
   return renderUserFrame(name, ocStatus, csrfToken, "agent", `
+    ${runtimeSection}
     ${modelSection}
     ${sessionsSection}
     ${logsSection}

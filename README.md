@@ -131,6 +131,7 @@ kellix update skills --force
 ```bash
 kellix logs         # stream logs
 kellix update       # update to the latest release
+kellix update opencode # pull the latest OpenCode image and recreate agents
 kellix backup       # encrypted backup of users, workspaces, and secrets
 kellix restore <file>
 kellix setup-url    # print the dashboard setup link
@@ -217,7 +218,7 @@ Dev commands:
 pnpm doctor
 ```
 
-Published installs track versioned releases, not `latest`. `main` continues to publish dev images for trunk-based work. Want the newest `main` build anyway? Use `kellix update --yolo`.
+Published installs pin the Kellix app image to versioned releases, while the OpenCode runtime tracks the rolling `kellix-opencode:main` image. Use `kellix update opencode` or the dashboard's Agent tab to pull newer OpenCode without a Kellix release. Want the newest Kellix `main` build anyway? Use `kellix update --yolo`.
 
 ---
 

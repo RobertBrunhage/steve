@@ -58,6 +58,14 @@ export function restartUserAgent(composeProject: string, name: string): void {
   ensureDockerSuccess(result, "Failed to restart user agent");
 }
 
+export function updateUserAgentImage(composeProject: string, name: string): void {
+  const result = runUserAgentCompose(composeProject, ["pull", getUserServiceName(name)]);
+  ensureDockerSuccess(result, "Failed to pull OpenCode image");
+
+  const recreate = runUserAgentCompose(composeProject, ["up", "-d", "--force-recreate", "--no-deps", getUserServiceName(name)]);
+  ensureDockerSuccess(recreate, "Failed to recreate user agent");
+}
+
 export function reconcileUserAgents(composeProject: string): void {
   const result = runUserAgentCompose(composeProject, ["up", "-d"]);
   ensureDockerSuccess(result, "Failed to reconcile user agents");

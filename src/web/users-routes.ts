@@ -16,6 +16,7 @@ import {
   startUserAgent,
   removeUserAgent,
   getComposeProject,
+  updateUserAgentImage,
 } from "./docker.js";
 import { renderUserAgentPage, renderUserBrowserPage, renderUserConnections, renderUserHeader, renderUserIntegrationsPage, renderUserSecretEditForm, renderUserSecretNewForm } from "./views.js";
 import { escapeHtml } from "./components.js";
@@ -129,6 +130,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
       ocUrl,
       currentModel,
       modelProviders,
+      opencodeImage: process.env.KELLIX_OPENCODE_IMAGE || "ghcr.io/robertbrunhage/kellix-opencode:main",
       attachedBrowser: readAttachedBrowserConfig(name),
       remoteBrowserAvailable: getBrowserSettings().remoteEnabled,
       browserCompanion,
@@ -381,6 +383,32 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     } catch {}
     setFlash(c, `${name}'s agent restarted`);
     return respondAfterAgentMutation(c, result, name);
+  });
+
+  app.post("/users/:name/update-opencode", async (c) => {
+    const result = await deps.requireAdminForm(c);
+    if (result instanceof Response) return result;
+
+    const validatedName = validateUserSlug(c.req.param("name"));
+    if (!validatedName.ok) return c.redirect("/");
+    const name = validatedName.value;
+
+    try {
+      const state = readUserAgentState()[name];
+      if (!state?.enabled) {
+        setupUserWorkspace(name);
+        const nextState = upsertUserAgentRecord(readUserAgentState(), name, { enabled: true });
+        writeUserAgentState(nextState);
+        writeUserAgentsCompose(nextState);
+      }
+      updateUserAgentImage(deps.composeProject, name);
+      setFlash(c, "OpenCode image updated and agent restarted");
+    } catch (err) {
+      console.error("Failed to update OpenCode image:", err instanceof Error ? err.message : err);
+      setFlash(c, "Failed to update OpenCode image", "error");
+    }
+
+    return c.redirect(`/users/${name}/agent`);
   });
 
   app.get("/users/:name", async (c) => {

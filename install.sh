@@ -125,7 +125,7 @@ apply_release_ref() {
     resolve_requested_ref
     RAW_BASE="https://raw.githubusercontent.com/$REPO_SLUG/$requested_ref"
     DEFAULT_KELLIX_IMAGE=$(image_for_ref "$DEFAULT_KELLIX_IMAGE_REPO" "$requested_ref")
-    DEFAULT_OPENCODE_IMAGE=$(image_for_ref "$DEFAULT_OPENCODE_IMAGE_REPO" "$requested_ref")
+    DEFAULT_OPENCODE_IMAGE=$(image_for_ref "$DEFAULT_OPENCODE_IMAGE_REPO" "main")
 }
 
 detect_hostname() {
@@ -255,10 +255,16 @@ set_env_value() {
 
 apply_release_ref() {
     local ref=$1
+    local current_opencode_image
+    local current_ref
+    current_opencode_image=$(get_env_value KELLIX_OPENCODE_IMAGE)
+    current_ref=$(get_env_value KELLIX_RELEASE_REF)
     set_env_value KELLIX_RELEASE_REF "$ref"
     set_env_value KELLIX_VERSION "$ref"
     set_env_value KELLIX_IMAGE "$(image_for_ref "$DEFAULT_KELLIX_IMAGE_REPO" "$ref")"
-    set_env_value KELLIX_OPENCODE_IMAGE "$(image_for_ref "$DEFAULT_OPENCODE_IMAGE_REPO" "$ref")"
+    if [[ -z "$current_opencode_image" || "$current_opencode_image" == "$(image_for_ref "$DEFAULT_OPENCODE_IMAGE_REPO" "$current_ref")" || "$current_opencode_image" == "$(image_for_ref "$DEFAULT_OPENCODE_IMAGE_REPO" "$ref")" ]]; then
+        set_env_value KELLIX_OPENCODE_IMAGE "$DEFAULT_OPENCODE_IMAGE"
+    fi
 }
 
 show_url() {
@@ -322,6 +328,8 @@ Commands:
   restore   Restore encrypted backup
   pull      Pull the currently configured images
   update    Update Kellix to the newest published release
+  update opencode
+            Pull the latest OpenCode image and recreate agents
   update --yolo
             Update Kellix to the latest main build
   update skills [--force]
@@ -343,6 +351,25 @@ update_skills() {
         fi
     fi
     docker_compose run --rm --no-deps kellix node dist/update-skills.js "${args[@]}"
+}
+
+update_opencode() {
+    local image
+    local services
+    image=$(get_env_value KELLIX_OPENCODE_IMAGE)
+    if [[ -z "$image" ]]; then
+        image=$DEFAULT_OPENCODE_IMAGE
+        set_env_value KELLIX_OPENCODE_IMAGE "$image"
+    fi
+    printf 'Pulling OpenCode image: %s\n' "$image"
+    docker pull "$image"
+    services=$(docker_compose config --services | grep '^opencode-' || true)
+    if [[ -z "$services" ]]; then
+        printf 'No OpenCode agents are configured yet. Start a member agent from the dashboard first.\n'
+        return
+    fi
+    docker_compose up -d --force-recreate --no-deps $services
+    printf 'OpenCode agents updated.\n'
 }
 
 run_image_tool() {
@@ -488,6 +515,8 @@ case "$cmd" in
     update)
         if [[ "${2:-}" == "skills" ]]; then
             update_skills "${3:-}"
+        elif [[ "${2:-}" == "opencode" ]]; then
+            update_opencode
         elif [[ "${2:-}" == "--yolo" ]]; then
             next_ref="main"
             curl -fsSL "https://raw.githubusercontent.com/$REPO_SLUG/$next_ref/docker-compose.yml" -o "$COMPOSE_FILE"
