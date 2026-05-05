@@ -1,6 +1,7 @@
-import { execSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { execFileSync, spawnSync } from "node:child_process";
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { resolve, dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import * as p from "@clack/prompts";
 import { APP_NAME, APP_SLUG, readEnv } from "./brand.js";
@@ -25,6 +26,21 @@ function getVolumeName(name: "data" | "vault") {
   return `${projectName}_${APP_SLUG}-${name}`;
 }
 
+function dumpVolume(volume: string, target: string, mount: string) {
+  const fd = openSync(target, "w");
+  try {
+    const result = spawnSync("docker", ["run", "--rm", "-v", `${volume}:${mount}`, "alpine", "tar", "czf", "-", "-C", mount, "."], {
+      cwd: projectRoot,
+      stdio: ["ignore", fd, "pipe"],
+      encoding: "utf-8",
+    });
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error(result.stderr || `Failed to dump ${volume}`);
+  } finally {
+    closeSync(fd);
+  }
+}
+
 async function main() {
   p.intro(`${APP_NAME} — Backup`);
 
@@ -35,37 +51,30 @@ async function main() {
   s.start("Creating backup");
 
   try {
-    // Dump data volume to tar
-    const dataTar = execSync(
-      `docker run --rm -v ${getVolumeName("data")}:/data alpine tar czf - -C /data .`,
-      { cwd: projectRoot, maxBuffer: 100 * 1024 * 1024 },
-    );
+    const tempDir = mkdtempSync(join(tmpdir(), `${APP_SLUG}-backup-`));
+    const date = new Date().toISOString();
+    const bundlePath = join(tempDir, "bundle.tgz");
+    try {
+      dumpVolume(getVolumeName("data"), join(tempDir, "data.tgz"), "/data");
+      dumpVolume(getVolumeName("vault"), join(tempDir, "vault.tgz"), "/vault");
+      writeFileSync(join(tempDir, "manifest.json"), `${JSON.stringify({ version: 2, date })}\n`, "utf-8");
+      execFileSync("tar", ["czf", bundlePath, "-C", tempDir, "manifest.json", "data.tgz", "vault.tgz"], { cwd: projectRoot, stdio: "ignore" });
 
-    // Dump vault volume to tar
-    const vaultTar = execSync(
-      `docker run --rm -v ${getVolumeName("vault")}:/vault alpine tar czf - -C /vault .`,
-      { cwd: projectRoot, maxBuffer: 10 * 1024 * 1024 },
-    );
+      // Encrypt the archive bytes directly. This avoids execSync stdout buffers
+      // and avoids base64-in-JSON expansion for larger data volumes.
+      const encrypted = encrypt(readFileSync(bundlePath), pw);
 
-    // Bundle: JSON with base64-encoded tars
-    const bundle = JSON.stringify({
-      version: 1,
-      date: new Date().toISOString(),
-      data: dataTar.toString("base64"),
-      vault: vaultTar.toString("base64"),
-    });
+      const filenameArg = process.argv[2];
+      const filenameDate = date.split("T")[0];
+      const filename = filenameArg || `${APP_SLUG}-backup-${filenameDate}.enc`;
+      writeFileSync(filename, encrypted);
+      const displayPath = getBackupDisplayPath(filename);
 
-    // Encrypt with password
-    const encrypted = encrypt(bundle, pw);
-
-    const filenameArg = process.argv[2];
-    const date = new Date().toISOString().split("T")[0];
-    const filename = filenameArg || `${APP_SLUG}-backup-${date}.enc`;
-    writeFileSync(filename, encrypted);
-    const displayPath = getBackupDisplayPath(filename);
-
-    s.stop(`Backup saved to ${displayPath}`);
-    p.outro(`${(encrypted.length / 1024 / 1024).toFixed(1)} MB`);
+      s.stop(`Backup saved to ${displayPath}`);
+      p.outro(`${(encrypted.length / 1024 / 1024).toFixed(1)} MB`);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   } catch (err) {
     s.stop("Backup failed");
     p.log.error(err instanceof Error ? err.message : String(err));

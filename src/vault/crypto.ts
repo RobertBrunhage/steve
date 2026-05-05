@@ -11,13 +11,13 @@ export function deriveKey(password: string, salt: Buffer): Buffer {
   return pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, KEY_LENGTH, "sha512");
 }
 
-export function encrypt(data: string, password: string): Buffer {
+export function encrypt(data: string | Buffer, password: string): Buffer {
   const salt = randomBytes(SALT_LENGTH);
   const key = deriveKey(password, salt);
   const iv = randomBytes(IV_LENGTH);
 
   const cipher = createCipheriv(ALGORITHM, key, iv);
-  const encrypted = Buffer.concat([cipher.update(data, "utf-8"), cipher.final()]);
+  const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
   const tag = cipher.getAuthTag();
 
   // Format: salt (32) + iv (16) + tag (16) + ciphertext
@@ -25,6 +25,10 @@ export function encrypt(data: string, password: string): Buffer {
 }
 
 export function decrypt(blob: Buffer, password: string): string {
+  return decryptBuffer(blob, password).toString("utf-8");
+}
+
+export function decryptBuffer(blob: Buffer, password: string): Buffer {
   const salt = blob.subarray(0, SALT_LENGTH);
   const iv = blob.subarray(SALT_LENGTH, SALT_LENGTH + IV_LENGTH);
   const tag = blob.subarray(SALT_LENGTH + IV_LENGTH, SALT_LENGTH + IV_LENGTH + TAG_LENGTH);
@@ -34,7 +38,7 @@ export function decrypt(blob: Buffer, password: string): string {
   const decipher = createDecipheriv(ALGORITHM, key, iv);
   decipher.setAuthTag(tag);
 
-  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf-8");
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 }
 
 // --- Key-based encryption (for keyfile mode) ---
