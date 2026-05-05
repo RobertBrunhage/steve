@@ -61,9 +61,16 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     return null;
   }
 
+  function getConfiguredThinkingLevel(opencodeConfig: Record<string, any>, configuredModel: string | null): string {
+    const agent = opencodeConfig.agent?.kellix;
+    return configuredModel && agent && typeof agent === "object" && typeof agent.variant === "string" && agent.variant.trim()
+      ? agent.variant
+      : "default";
+  }
+
   async function getOpenCodeModelState(name: string): Promise<{
     currentModel: string | null;
-    providers: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }>;
+    providers: Array<{ id: string; name: string; models: Array<{ id: string; name: string; variants: string[] }> }>;
   }> {
     const oc = createOpencodeClient({
       baseUrl: `http://opencode-${name}:3456`,
@@ -81,10 +88,14 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
         id: String(provider.id),
         name: String(provider.name || provider.id),
         models: Object.values(provider.models || {})
-          .map((model: any) => ({ id: String(model.id), name: String(model.name || model.id) }))
+          .map((model: any) => ({
+            id: String(model.id),
+            name: String(model.name || model.id),
+            variants: model.variants && typeof model.variants === "object" ? Object.keys(model.variants) : [],
+          }))
           .sort((a, b) => a.name.localeCompare(b.name)),
       }))
-      .filter((provider: { models: Array<{ id: string; name: string }> }) => provider.models.length > 0)
+      .filter((provider: { models: Array<{ id: string; name: string; variants: string[] }> }) => provider.models.length > 0)
       .sort((a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name));
 
     return { currentModel, providers };
@@ -110,7 +121,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     const ocUrl = ocPort && agentEnabled ? `http://${baseUrl.hostname}:${ocPort}` : "";
     const users = readUsersFromVault(deps.getVault());
     let currentModel: string | null = inferConfiguredModel(savedConfig);
-    let modelProviders: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> = [];
+    let modelProviders: Array<{ id: string; name: string; models: Array<{ id: string; name: string; variants: string[] }> }> = [];
 
     if (ocStatus === "running") {
       try {
@@ -129,6 +140,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
       agentEnabled,
       ocUrl,
       currentModel,
+      thinkingLevel: getConfiguredThinkingLevel(savedConfig, currentModel),
       modelProviders,
       opencodeImage: process.env.KELLIX_OPENCODE_IMAGE || "ghcr.io/robertbrunhage/kellix-opencode:main",
       attachedBrowser: readAttachedBrowserConfig(name),
@@ -464,6 +476,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
 
     const submittedProviderId = String(result.body.provider_id || "").trim();
     const submittedModelId = String(result.body.model_id || "").trim();
+    const submittedThinkingLevel = String(result.body.thinking_level || "default").trim();
     if (!submittedProviderId || !submittedModelId) {
       return c.redirect(`/users/${validatedName.value}/agent`);
     }
@@ -510,6 +523,15 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
         },
       };
     }
+
+    const agent = nextConfig.agent && typeof nextConfig.agent === "object" ? nextConfig.agent as Record<string, any> : {};
+    const kellixAgent = agent.kellix && typeof agent.kellix === "object" ? agent.kellix as Record<string, any> : {};
+    const nextKellixAgent: Record<string, any> = { ...kellixAgent, model: configuredModel };
+    delete nextKellixAgent.variant;
+    if (submittedThinkingLevel !== "default") {
+      nextKellixAgent.variant = submittedThinkingLevel;
+    }
+    nextConfig.agent = { ...agent, kellix: nextKellixAgent };
 
     writeFileSync(getUserOpenCodeConfigPath(validatedName.value), `${JSON.stringify(nextConfig, null, 2)}\n`, "utf-8");
     const state = await getUserPageState(validatedName.value);

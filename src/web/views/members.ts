@@ -28,14 +28,15 @@ export interface RenderUserOptions {
   userSecrets?: UserAppSecretSummary[];
   recentActivity?: ActivityEntry[];
   currentModel?: string | null;
-  modelProviders?: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }>;
+  thinkingLevel?: string;
+  modelProviders?: Array<{ id: string; name: string; models: Array<{ id: string; name: string; variants?: string[] }> }>;
   opencodeImage?: string;
   attachedBrowser?: AttachedBrowserConfig | null;
   remoteBrowserAvailable?: boolean;
   browserCompanion?: BrowserCompanionStatus;
 }
 
-type ModelOption = { id: string; name: string };
+type ModelOption = { id: string; name: string; variants?: string[] };
 type ModelProvider = { id: string; name: string; models: ModelOption[] };
 
 function toQualifiedModelId(providerId: string, modelId: string): string {
@@ -51,7 +52,7 @@ function ensureCurrentModelIsSelectable(providers: ModelProvider[], currentModel
   const providerIndex = providers.findIndex((provider) => provider.id === providerId);
   if (providerIndex === -1) {
     const modelName = currentModel.slice(currentModel.indexOf("/") + 1) || currentModel;
-    return [...providers, { id: providerId, name: providerId, models: [{ id: currentModel, name: modelName }] }];
+    return [...providers, { id: providerId, name: providerId, models: [{ id: currentModel, name: modelName, variants: [] }] }];
   }
 
   const provider = providers[providerIndex]!;
@@ -402,7 +403,7 @@ export function renderUserAgentPage(name: string, ocStatus: string, ocUrl: strin
         if (cm.length === 0) modelId = '';
         else if (!cm.some((m) => m.id === modelId)) modelId = cm[0].id;
       "
-      class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-3 items-end">
+      class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,220px)_auto] gap-3 items-end">
       ${hiddenCsrf(csrfToken)}
       <div>
         <label for="provider_id" class="block text-xs text-neutral-500 mb-1">Provider</label>
@@ -417,6 +418,15 @@ export function renderUserAgentPage(name: string, ocStatus: string, ocUrl: strin
         <select id="model_id" name="model_id" x-model="modelId" class="${inputClass}">
           <template x-for="m in (providers.find((p) => p.id === providerId) || { models: [] }).models" :key="m.id">
             <option :value="m.id" x-text="m.name"></option>
+          </template>
+        </select>
+      </div>
+      <div x-show="(((providers.find((p) => p.id === providerId) || { models: [] }).models.find((m) => m.id === modelId) || { variants: [] }).variants || []).length > 0" x-cloak>
+        <label for="thinking_level" class="block text-xs font-medium text-neutral-600 mb-1">Thinking</label>
+        <select id="thinking_level" name="thinking_level" class="${inputClass}">
+          <option value="default"${(options?.thinkingLevel || "default") === "default" ? " selected" : ""}>Default</option>
+          <template x-for="variant in (((providers.find((p) => p.id === providerId) || { models: [] }).models.find((m) => m.id === modelId) || { variants: [] }).variants || [])" :key="variant">
+            <option :value="variant" x-text="variant" :selected="variant === '${escapeHtml(options?.thinkingLevel || "")}'"></option>
           </template>
         </select>
       </div>

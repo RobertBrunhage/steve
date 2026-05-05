@@ -132,11 +132,9 @@ export class Brain {
   }
 
   private async promptSession(oc: OpencodeClient, sessionId: string, parts: PromptPart[]) {
-    const model = await this.getConfiguredModel(oc);
-
     return oc.session.prompt({
       path: { id: sessionId },
-      body: { parts, agent: APP_SLUG, model },
+      body: { parts, agent: APP_SLUG },
     });
   }
 
