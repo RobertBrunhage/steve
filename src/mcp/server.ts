@@ -1,7 +1,4 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { existsSync, readdirSync } from "node:fs";
-import { join, resolve, normalize, basename, dirname } from "node:path";
-import { execFile } from "node:child_process";
 import { z } from "zod";
 import { APP_NAME, APP_SLUG } from "../brand.js";
 import { appendUserActivity } from "../activity.js";
@@ -22,54 +19,13 @@ import {
 } from "../workflows/storage.js";
 import { validateWorkflowYaml, type WorkflowRunner } from "../workflows/runner.js";
 import { parseWorkflow } from "../workflows/parser.js";
-import { appendRunScriptAudit } from "./audit.js";
-import { buildScriptExecutionContext, redactSecrets } from "./script-security.js";
+import { discoverProjectScripts, executeAllowedScript, resolveAllowedScript } from "./script-exec.js";
 
 interface McpConfig {
   channel: Channel;
   projectRoot: string;
   dataDir: string;
   engine?: WorkflowRunner;
-}
-
-/** Snapshot project scripts at startup (immutable, security-critical) */
-function discoverProjectScripts(projectRoot: string): Set<string> {
-  const scripts = new Set<string>();
-  const dir = join(projectRoot, "scripts");
-  try {
-    for (const file of readdirSync(dir)) {
-      if (file.endsWith(".sh")) {
-        scripts.add(resolve(join(dir, file)));
-      }
-    }
-  } catch {}
-  return scripts;
-}
-
-/** Check if a script is inside a user's skills/scripts/ directory */
-function isSkillScript(scriptPath: string, dataDir: string): boolean {
-  const resolved = resolve(scriptPath);
-
-  const usersDir = resolve(join(dataDir, "users"));
-  if (resolved.startsWith(usersDir + "/")) {
-    const relative = resolved.slice(usersDir.length + 1);
-    const parts = relative.split("/");
-    const legacyUserSkill = parts.length === 5 && parts[1] === "skills" && parts[3] === "scripts" && parts[4].endsWith(".sh");
-    const agentSkill = parts.length === 7 && parts[1] === "agents" && parts[3] === "skills" && parts[5] === "scripts" && parts[6].endsWith(".sh");
-    return legacyUserSkill || agentSkill;
-  }
-
-  return false;
-}
-
-/** Extract skill name from a script path like skills/withings/scripts/fetch.sh → withings */
-function getSkillFromPath(scriptPath: string): string | null {
-  const parts = scriptPath.split("/");
-  const scriptsIdx = parts.lastIndexOf("scripts");
-  if (scriptsIdx > 0) {
-    return parts[scriptsIdx - 1];
-  }
-  return null;
 }
 
 export type McpServerFactory = () => McpServer;
@@ -417,126 +373,32 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
     },
   }, async ({ script, agentId, args }) => {
     const userName = args?.[0] ? toUserSlug(args[0]) : "";
-    const scriptAgentId = toUserSlug(agentId || APP_SLUG);
     const scriptArgs = userName && args?.length
       ? [userName, ...args.slice(1)]
       : (args || []);
 
-    // Normalize script path: OpenCode sends paths relative to its container
-    // (e.g. "skills/withings/scripts/setup.sh" or "/data/agents/kellix/skills/withings/scripts/setup.sh").
-    // Agent skills live under users/<user>/agents/<agent>/skills on the host.
-    let scriptPath = script;
-    const agentSkillsMatch = script.match(/(?:^|\/)agents\/([^/]+)\/(skills\/.+)$/);
-    const skillsMatch = script.match(/(?:^|\/)(skills\/.+)$/);
-    if (agentSkillsMatch) {
-      if (!userName) {
-        return {
-          content: [{ type: "text", text: "Error: Skill scripts require the current user name as the first argument." }],
-          isError: true,
-        };
-      }
-      scriptPath = join(dataDir, "users", userName, "agents", toUserSlug(agentSkillsMatch[1] || scriptAgentId), agentSkillsMatch[2] || "");
-    } else
-    if (skillsMatch) {
-      if (!userName) {
-        return {
-          content: [{ type: "text", text: "Error: Skill scripts require the current user name as the first argument." }],
-          isError: true,
-        };
-      }
-      scriptPath = join(dataDir, "users", userName, "agents", scriptAgentId, skillsMatch[1]);
+    const resolution = resolveAllowedScript({ script, userName, agentId, dataDir, projectScripts });
+    if (!resolution.ok) {
+      return { content: [{ type: "text", text: `Error: ${resolution.error}` }], isError: true };
     }
 
-    const resolved = resolve(scriptPath);
-    if (!projectScripts.has(resolved) && !isSkillScript(resolved, dataDir)) {
-      return {
-        content: [{ type: "text", text: `Error: Script not allowed. Must be in project scripts/ or skills/*/scripts/.` }],
-        isError: true,
-      };
-    }
-
-    if (!existsSync(resolved)) {
-      return {
-        content: [{ type: "text", text: `Error: Script not found: ${script}` }],
-        isError: true,
-      };
-    }
-
-    const skill = getSkillFromPath(resolved);
-    const scriptContext = buildScriptExecutionContext({
-      vault,
+    const result = await executeAllowedScript({
+      resolved: resolution.resolved,
+      args: scriptArgs,
       userName,
-      scriptPath: resolved,
+      vault,
       dataDir,
       projectRoot,
+      skill: resolution.skill,
     });
 
-    return new Promise((res) => {
-      const startedAt = Date.now();
-      execFile("bash", [resolved, ...scriptArgs], {
-        timeout: 300_000,
-        env: {
-          ...process.env,
-          KELLIX_PROJECT_ROOT: projectRoot,
-          KELLIX_DATA_DIR: dataDir,
-          KELLIX_BASE_URL: getBaseUrl(),
-          STEVE_PROJECT_ROOT: projectRoot,
-          STEVE_DATA_DIR: dataDir,
-          STEVE_BASE_URL: getBaseUrl(),
-          ...scriptContext.env,
-        },
-      }, (error, stdout, stderr) => {
-        let output = stdout || "(no output)";
-        try {
-          const parsed = JSON.parse(output);
-          if (parsed.save_to_vault && vault) {
-            const { key, value } = parsed.save_to_vault;
-            if (key && value) vault.set(key, value);
-            delete parsed.save_to_vault;
-            output = JSON.stringify(parsed);
-          }
-        } catch {}
-
-        const redactedOutput = scriptContext.redactOutput
-          ? redactSecrets(output, scriptContext.injectedSecretValues)
-          : { text: output, redactionCount: 0 };
-        const redactedError = scriptContext.redactOutput
-          ? redactSecrets(stderr || "", scriptContext.injectedSecretValues)
-          : { text: stderr || "", redactionCount: 0 };
-        const safeOutput = redactedOutput.text;
-        const safeError = redactedError.text;
-        const auditEntry = {
-          timestamp: new Date().toISOString(),
-          userName,
-          script: resolved,
-          status: error ? "error" as const : "ok" as const,
-          durationMs: Date.now() - startedAt,
-          secretKeys: scriptContext.injectedSecretKeys,
-          usedManifest: scriptContext.usedManifest,
-          redactionCount: redactedOutput.redactionCount + redactedError.redactionCount,
-        };
-        appendRunScriptAudit(dataDir, auditEntry);
-        appendUserActivity(config.dataDir, {
-          timestamp: auditEntry.timestamp,
-          userName: userName || "system",
-          type: "script",
-          status: error ? "error" : "ok",
-          summary: `${error ? "Script failed" : "Script ran"}: ${skill ? `${skill}/` : ""}${basename(resolved)}`,
-        });
-
-        if (error) {
-          res({
-            content: [{ type: "text", text: safeError || safeOutput || error.message }],
-            isError: true,
-          });
-          return;
-        }
-
-        res({
-          content: [{ type: "text", text: safeOutput }],
-        });
-      });
-    });
+    if (result.exitCode !== 0) {
+      return {
+        content: [{ type: "text", text: result.stderr || result.stdout || `script exited with code ${result.exitCode}` }],
+        isError: true,
+      };
+    }
+    return { content: [{ type: "text", text: result.stdout || "(no output)" }] };
   });
 
   return server;

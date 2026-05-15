@@ -4,6 +4,8 @@ import type { Brain } from "../brain/index.js";
 import type { Channel } from "../channels/index.js";
 import type { Vault } from "../vault/index.js";
 import { WorkflowRunner } from "./runner.js";
+import { RunStepHandler } from "./steps/run.js";
+import { ScriptStepHandler } from "./steps/script.js";
 
 export { WorkflowRunner } from "./runner.js";
 export { parseWorkflow, workflowVersion } from "./parser.js";
@@ -40,6 +42,8 @@ export interface WorkflowEngineDeps {
  */
 export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowRunner {
   const runner = new WorkflowRunner(deps);
-  // Step handlers are registered as they're implemented in later phases.
+  runner.registerStepHandler("run", new RunStepHandler());
+  runner.registerStepHandler("script", new ScriptStepHandler());
+  // llm / pipeline / approval / workflow / cross_agent / wait registered in later phases.
   return runner;
 }

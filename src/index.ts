@@ -91,8 +91,6 @@ async function startBot(botToken: string, brain: Brain, route?: { userName: stri
       { command: "history", description: "View recent training history" },
     ]);
 
-    if (!route) startScheduler(brain);
-
     await bot.api.deleteWebhook({ drop_pending_updates: true });
 
     try {
@@ -204,6 +202,7 @@ async function startServices(vault: Vault, botToken: string, users: UsersMap) {
 
   // Start services
   setTelegramConnected(true);
+  startScheduler(brain, engine);
 
   await Promise.all([
     startBot(botToken, brain),

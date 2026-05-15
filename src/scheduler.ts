@@ -8,6 +8,8 @@ import type { Brain } from "./brain/index.js";
 import { config, getSystemTimezone, getUserAgentDir } from "./config.js";
 import { setReminderCount } from "./health.js";
 import { toUserSlug } from "./users.js";
+import { fingerprintWorkflowTriggers, loadAllWorkflowTriggers, type WorkflowTriggerEntry } from "./workflows/triggers.js";
+import type { WorkflowRunner } from "./workflows/runner.js";
 
 export interface Job {
   id: string;
@@ -31,7 +33,7 @@ interface UserAgentJobs {
 }
 
 export interface ScheduledEntry {
-  kind: "job" | "heartbeat";
+  kind: "job" | "heartbeat" | "workflow";
   userName: string;
   agentId?: string;
   id: string;
@@ -273,7 +275,19 @@ export function listScheduledEntries(): ScheduledEntry[] {
     name: "Heartbeat",
     cron: "*/30 8-21 * * *",
   }));
-  return [...allJobs, ...heartbeats].sort((a, b) => a.userName.localeCompare(b.userName) || a.name.localeCompare(b.name));
+  const workflowTriggers: ScheduledEntry[] = loadAllWorkflowTriggers()
+    .filter((t) => t.cron || t.at)
+    .map((t) => ({
+      kind: "workflow" as const,
+      userName: t.userName,
+      agentId: t.agentId,
+      id: t.workflowName,
+      name: `${t.workflowName} (workflow)`,
+      cron: t.cron,
+      at: t.at,
+      timezone: t.timezone,
+    }));
+  return [...allJobs, ...heartbeats, ...workflowTriggers].sort((a, b) => a.userName.localeCompare(b.userName) || a.name.localeCompare(b.name));
 }
 
 export function getVisibleScheduledEntryCount(): number {
@@ -441,6 +455,44 @@ function checkOneOffs(allUserJobs: UserAgentJobs[], brain: Brain) {
   }
 }
 
+function registerWorkflowTriggers(entries: WorkflowTriggerEntry[], engine: WorkflowRunner): void {
+  for (const entry of entries) {
+    if (entry.cron) {
+      try {
+        const cronJob = CronJob.from({
+          cronTime: entry.cron,
+          onTick: () => {
+            engine.runByName(entry.userName, entry.agentId, entry.workflowName, { triggerKind: "cron" }).catch((err) => {
+              p.log.warn(`workflow ${entry.workflowName} failed: ${err instanceof Error ? err.message : err}`);
+            });
+          },
+          start: true,
+          timeZone: entry.timezone,
+        });
+        activeJobs.set(`workflow:${entry.userName}:${entry.agentId}:${entry.workflowName}`, cronJob);
+        p.log.info(`Scheduled workflow "${entry.workflowName}" for ${entry.userName}/${entry.agentId}`);
+      } catch {
+        p.log.warn(`Invalid cron "${entry.cron}" for workflow ${entry.userName}/${entry.agentId}/${entry.workflowName}`);
+      }
+    }
+    if (entry.at) {
+      const at = new Date(entry.at).getTime();
+      const now = Date.now();
+      if (!Number.isNaN(at) && at > now) {
+        const key = `workflow-at:${entry.userName}:${entry.agentId}:${entry.workflowName}`;
+        const timer = setTimeout(() => {
+          engine.runByName(entry.userName, entry.agentId, entry.workflowName, { triggerKind: "at" }).catch((err) => {
+            p.log.warn(`workflow ${entry.workflowName} failed: ${err instanceof Error ? err.message : err}`);
+          });
+        }, at - now);
+        // Track via activeJobs interface: store a stub with stop()
+        const stub = { stop: () => clearTimeout(timer) } as unknown as CronJob;
+        activeJobs.set(key, stub);
+      }
+    }
+  }
+}
+
 function listAllUserAgents(): Array<{ userName: string; agentId: string }> {
   const out: Array<{ userName: string; agentId: string }> = [];
   for (const userName of loadUserDirectories()) {
@@ -451,7 +503,7 @@ function listAllUserAgents(): Array<{ userName: string; agentId: string }> {
   return out;
 }
 
-export function startScheduler(brain: Brain) {
+export function startScheduler(brain: Brain, engine?: WorkflowRunner) {
   let lastFingerprint = "";
 
   function sync(initial = false) {
@@ -459,11 +511,13 @@ export function startScheduler(brain: Brain) {
     const heartbeats = loadHeartbeatAgents();
     const compactionTargets = listAllUserAgents();
     const compactionTimezone = getSystemTimezone();
+    const workflowTriggers = engine ? loadAllWorkflowTriggers() : [];
 
     const fingerprint = allUserJobs
       .flatMap(({ userName, agentId, jobs }) => jobs.map((j) => `${userName}:${agentId}:${j.id}:${j.cron || j.at}:${j.disabled ? "disabled" : "enabled"}`))
       .concat(heartbeats.map(({ userName, agentId }) => `heartbeat:${userName}:${agentId}`))
       .concat(compactionTargets.map(({ userName, agentId }) => `compaction:${userName}:${agentId}:${compactionTimezone}`))
+      .concat(fingerprintWorkflowTriggers(workflowTriggers))
       .sort()
       .join("|");
 
@@ -521,6 +575,10 @@ export function startScheduler(brain: Brain) {
     }
     if (compactionTargets.length > 0) {
       p.log.info(`Daily compaction active for ${compactionTargets.length} agents (${compactionTimezone})`);
+    }
+
+    if (engine) {
+      registerWorkflowTriggers(workflowTriggers, engine);
     }
 
     const totalJobs = allUserJobs.reduce((n, u) => n + u.jobs.filter((j) => !j.disabled).length, 0);

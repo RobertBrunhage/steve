@@ -283,6 +283,158 @@ steps:
     assert.ok(r.errors.length > 0);
   });
 
+  // --- Phase 2: run/script step + cron triggers ---
+
+  const { createWorkflowEngine } = await import("../src/workflows/index.js");
+  const { loadAllWorkflowTriggers, fingerprintWorkflowTriggers } = await import("../src/workflows/triggers.js");
+
+  const mockBrain = { think: async () => undefined, thinkIsolated: async () => undefined } as any;
+  const mockChannel = { name: "test", sendMessage: async () => ({ ok: true }), sendFile: async () => ({ ok: true }), editMessage: async () => ({ ok: true }) } as any;
+  const engine = createWorkflowEngine({ brain: mockBrain, channel: mockChannel, vault: null, dataDir: testDir, projectRoot: process.cwd() });
+
+  const runOk = parseWorkflow(`name: echo-flow
+steps:
+  - id: hello
+    run: echo "hi from workflow"
+`).def!;
+  const runFail = parseWorkflow(`name: fail-flow
+steps:
+  - id: bad
+    run: "false"
+`).def!;
+  const runContinue = parseWorkflow(`name: continue-flow
+steps:
+  - id: bad
+    run: "false"
+    on_error: continue
+  - id: good
+    run: echo "after"
+`).def!;
+  const runStop = parseWorkflow(`name: stop-flow
+steps:
+  - id: bad
+    run: "false"
+    on_error: stop
+  - id: never
+    run: echo "should not run"
+`).def!;
+  const runRetry = parseWorkflow(`name: retry-flow
+steps:
+  - id: bad
+    run: "false"
+    retry:
+      max: 2
+      backoff: linear
+      delay_ms: 10
+`).def!;
+
+  test("run step: success captures stdout", async () => {
+    const inst = await engine.run("robert", "devops", runOk);
+    assert.equal(inst.status, "ok");
+    assert.equal(inst.steps.hello.status, "ok");
+    assert.match(String(inst.steps.hello.stdout ?? ""), /hi from workflow/);
+  });
+
+  test("run step: non-zero exit marks step + instance as error", async () => {
+    const inst = await engine.run("robert", "devops", runFail);
+    assert.equal(inst.status, "error");
+    assert.equal(inst.steps.bad.status, "error");
+  });
+
+  test("run step: on_error continue advances to next step", async () => {
+    const inst = await engine.run("robert", "devops", runContinue);
+    assert.equal(inst.status, "ok");
+    assert.equal(inst.steps.bad.status, "error");
+    assert.equal(inst.steps.good.status, "ok");
+  });
+
+  test("run step: on_error stop halts workflow", async () => {
+    const inst = await engine.run("robert", "devops", runStop);
+    assert.equal(inst.status, "error");
+    assert.equal(inst.steps.bad.status, "error");
+    assert.equal(inst.steps.never, undefined);
+  });
+
+  test("run step: retry retries on failure up to max", async () => {
+    const start = Date.now();
+    const inst = await engine.run("robert", "devops", runRetry);
+    const elapsed = Date.now() - start;
+    assert.equal(inst.status, "error");
+    assert.equal(inst.steps.bad.attempt, 3); // initial + 2 retries
+    assert.ok(elapsed >= 30, `expected at least 30ms for backoff, got ${elapsed}ms`);
+  });
+
+  test("run step: ${args.X} interpolation works", async () => {
+    const flow = parseWorkflow(`name: greet
+steps:
+  - id: hi
+    run: echo "hello \${$args.name}"
+`).def!;
+    const inst = await engine.run("robert", "devops", flow, { args: { name: "robert" } });
+    assert.equal(inst.status, "ok");
+    assert.match(String(inst.steps.hi.stdout ?? ""), /hello robert/);
+  });
+
+  test("run step: when expression skips step", async () => {
+    const flow = parseWorkflow(`name: skip
+steps:
+  - id: first
+    run: echo "first"
+  - id: maybe
+    when: "$steps.first.stdout == 'NEVER'"
+    run: echo "should not run"
+  - id: last
+    run: echo "last"
+`).def!;
+    const inst = await engine.run("robert", "devops", flow);
+    assert.equal(inst.status, "ok");
+    assert.equal(inst.steps.maybe.status, "skipped");
+    assert.equal(inst.steps.last.status, "ok");
+  });
+
+  test("run step: concurrency mode skip drops second invocation while first runs", async () => {
+    const slow = parseWorkflow(`name: slow
+concurrency: { mode: skip }
+steps:
+  - id: sleeper
+    run: sleep 0.3
+`).def!;
+    const first = engine.run("robert", "devops", slow);
+    // Give the first run a tick to register
+    await new Promise((r) => setTimeout(r, 50));
+    let secondError: unknown;
+    try { await engine.run("robert", "devops", slow); } catch (err) { secondError = err; }
+    assert.ok(secondError, "expected skip mode to throw for concurrent invocation");
+    const inst = await first;
+    assert.equal(inst.status, "ok");
+  });
+
+  // --- Trigger discovery ---
+
+  writeWorkflow("robert", "devops", "cron-flow", `name: cron-flow
+triggers:
+  - cron: "*/5 * * * *"
+steps:
+  - id: tick
+    run: echo tick
+`);
+
+  test("triggers: loadAllWorkflowTriggers discovers cron entries", () => {
+    const all = loadAllWorkflowTriggers();
+    const found = all.find((t) => t.workflowName === "cron-flow");
+    assert.ok(found, "expected cron-flow in triggers");
+    assert.equal(found?.cron, "*/5 * * * *");
+  });
+
+  test("triggers: fingerprint includes user/agent/workflow/spec", () => {
+    const fp = fingerprintWorkflowTriggers([{
+      userName: "robert", agentId: "devops", workflowName: "cron-flow",
+      cron: "*/5 * * * *",
+    }]);
+    assert.equal(fp.length, 1);
+    assert.match(fp[0], /workflow:robert:devops:cron-flow/);
+  });
+
   // Cleanup
   try { rmSync(testDir, { recursive: true, force: true }); } catch {}
 
