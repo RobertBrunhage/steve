@@ -29,6 +29,7 @@ const ADMIN_COOKIE_MAX_AGE_SECONDS = ADMIN_SESSION_MAX_AGE_MS / 1000;
 
 export function startWebServer(vault: Vault | null, port: number, options: WebServerOptions = {}): WebServerHandle {
   let currentVault = vault;
+  let currentEngine = options.workflowEngine;
   const adminSessions = new Map<string, SessionRecord>();
   const bootstrapSessions = new Map<string, SessionRecord>();
   const app = new Hono();
@@ -39,6 +40,10 @@ export function startWebServer(vault: Vault | null, port: number, options: WebSe
 
   function setVault(nextVault: Vault) {
     currentVault = nextVault;
+  }
+
+  function setWorkflowEngine(engine: import("../workflows/runner.js").WorkflowRunner) {
+    currentEngine = engine;
   }
 
   function getAdminAuthRecord(): unknown {
@@ -145,6 +150,7 @@ export function startWebServer(vault: Vault | null, port: number, options: WebSe
   const deps: WebRouteDeps = {
     composeProject: getComposeProject(),
     telegramFetch: options.telegramFetch ?? fetch,
+    get workflowEngine() { return currentEngine; },
     getVault,
     setVault,
     isAdminConfigured,
@@ -176,5 +182,6 @@ export function startWebServer(vault: Vault | null, port: number, options: WebSe
   return {
     app,
     setupUrl: token ? `${getBaseUrl()}/setup?token=${encodeURIComponent(token)}` : null,
+    setWorkflowEngine,
   };
 }

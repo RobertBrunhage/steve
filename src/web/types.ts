@@ -1,15 +1,18 @@
 import type { Context, Hono } from "hono";
 import type { Vault } from "../vault/index.js";
+import type { WorkflowRunner } from "../workflows/runner.js";
 import type { SessionRecord } from "./auth.js";
 
 export interface WebServerOptions {
   listen?: boolean;
   telegramFetch?: typeof fetch;
+  workflowEngine?: WorkflowRunner;
 }
 
 export interface WebServerHandle {
   app: Hono;
   setupUrl: string | null;
+  setWorkflowEngine?: (engine: WorkflowRunner) => void;
 }
 
 export interface AdminFormResult {
@@ -20,6 +23,7 @@ export interface AdminFormResult {
 export interface WebRouteDeps {
   composeProject: string;
   telegramFetch: typeof fetch;
+  workflowEngine?: WorkflowRunner;
   getVault(): Vault | null;
   setVault(vault: Vault): void;
   isAdminConfigured(): boolean;

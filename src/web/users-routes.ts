@@ -722,6 +722,95 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     }));
   });
 
+  // --- Workflows ------------------------------------------------------------
+
+  app.get("/users/:name/agents/:agent/workflows", async (c) => {
+    const session = deps.requireAdminPage(c);
+    if (session instanceof Response) return session;
+    const validatedName = validateUserSlug(c.req.param("name"));
+    if (!validatedName.ok) return c.redirect("/");
+    const name = validatedName.value;
+    const agentId = normalizeAgentId(String(c.req.param("agent") || ""));
+    const { listWorkflows, listInstances } = await import("../workflows/storage.js");
+    const workflows = listWorkflows(name, agentId);
+    const recentRuns = listInstances(name, agentId, { limit: 20 });
+    const { renderWorkflowsList } = await import("./views/workflows.js");
+    return c.html(renderWorkflowsList({ userName: name, agentId, workflows, recentRuns, csrfToken: session.csrfToken }));
+  });
+
+  app.get("/users/:name/agents/:agent/workflows/:wf", async (c) => {
+    const session = deps.requireAdminPage(c);
+    if (session instanceof Response) return session;
+    const validatedName = validateUserSlug(c.req.param("name"));
+    if (!validatedName.ok) return c.redirect("/");
+    const name = validatedName.value;
+    const agentId = normalizeAgentId(String(c.req.param("agent") || ""));
+    const wfName = String(c.req.param("wf") || "");
+    const { readWorkflow, listInstances } = await import("../workflows/storage.js");
+    const workflow = readWorkflow(name, agentId, wfName);
+    if (!workflow) return c.redirect(`/users/${name}/agents/${agentId}/workflows`);
+    const runs = listInstances(name, agentId, { workflowName: wfName, limit: 10 });
+    const { renderWorkflowDetail } = await import("./views/workflows.js");
+    return c.html(renderWorkflowDetail({ userName: name, agentId, workflow, runs, csrfToken: session.csrfToken }));
+  });
+
+  app.get("/users/:name/agents/:agent/workflows/:wf/runs/:id", async (c) => {
+    const session = deps.requireAdminPage(c);
+    if (session instanceof Response) return session;
+    const validatedName = validateUserSlug(c.req.param("name"));
+    if (!validatedName.ok) return c.redirect("/");
+    const name = validatedName.value;
+    const agentId = normalizeAgentId(String(c.req.param("agent") || ""));
+    const wfName = String(c.req.param("wf") || "");
+    const id = String(c.req.param("id") || "");
+    const { readWorkflow, readInstance } = await import("../workflows/storage.js");
+    const workflow = readWorkflow(name, agentId, wfName);
+    const instance = readInstance(name, agentId, id);
+    if (!workflow || !instance) return c.redirect(`/users/${name}/agents/${agentId}/workflows`);
+    const { renderWorkflowRun } = await import("./views/workflows.js");
+    return c.html(renderWorkflowRun({ userName: name, agentId, workflow, instance, csrfToken: session.csrfToken }));
+  });
+
+  app.post("/users/:name/agents/:agent/workflows/:wf/run", async (c) => {
+    const result = await deps.requireAdminForm(c);
+    if (result instanceof Response) return result;
+    const validatedName = validateUserSlug(c.req.param("name"));
+    if (!validatedName.ok) return c.redirect("/");
+    const name = validatedName.value;
+    const agentId = normalizeAgentId(String(c.req.param("agent") || ""));
+    const wfName = String(c.req.param("wf") || "");
+    const engine = deps.workflowEngine;
+    if (!engine) {
+      setFlash(c, "Workflow engine not available", "error");
+      return c.redirect(`/users/${name}/agents/${agentId}/workflows/${wfName}`);
+    }
+    engine.runByName(name, agentId, wfName, { triggerKind: "manual" }).catch((err) => {
+      console.error(`Manual workflow run failed: ${err instanceof Error ? err.message : err}`);
+    });
+    setFlash(c, "Workflow started");
+    return c.redirect(`/users/${name}/agents/${agentId}/workflows/${wfName}`);
+  });
+
+  app.post("/users/:name/agents/:agent/workflows/:wf/runs/:id/approve", async (c) => {
+    const result = await deps.requireAdminForm(c);
+    if (result instanceof Response) return result;
+    const validatedName = validateUserSlug(c.req.param("name"));
+    if (!validatedName.ok) return c.redirect("/");
+    const name = validatedName.value;
+    const agentId = normalizeAgentId(String(c.req.param("agent") || ""));
+    const wfName = String(c.req.param("wf") || "");
+    const id = String(c.req.param("id") || "");
+    const response = String(result.body.response || "");
+    const engine = deps.workflowEngine;
+    if (!engine) {
+      setFlash(c, "Workflow engine not available", "error");
+      return c.redirect(`/users/${name}/agents/${agentId}/workflows/${wfName}/runs/${id}`);
+    }
+    const ok = engine.resume({ instanceId: id, response, approvedBy: "admin" });
+    setFlash(c, ok ? `Resumed with ${response}` : "No pending approval to resume", ok ? "ok" : "error");
+    return c.redirect(`/users/${name}/agents/${agentId}/workflows/${wfName}/runs/${id}`);
+  });
+
   app.post("/users/:name/agent/model", async (c) => {
     return saveAgentModel(c, APP_SLUG);
   });

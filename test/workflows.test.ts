@@ -524,6 +524,108 @@ steps:
     assert.deepEqual(inst.steps.proj.json, [{ a: 1, c: 3 }]);
   });
 
+  // --- Phase 4: approval gate ---
+
+  type CapturedMessage = { text: string; buttons?: unknown };
+  let capturedMessages: CapturedMessage[] = [];
+  const buttonyChannel = {
+    name: "test",
+    sendMessage: async (_u: string, text: string, opts?: { buttons?: unknown }) => {
+      capturedMessages.push({ text, buttons: opts?.buttons });
+      return { ok: true };
+    },
+    sendFile: async () => ({ ok: true }),
+    editMessage: async () => ({ ok: true }),
+  } as any;
+
+  const approvalEngine = createWorkflowEngine({ brain: mockBrain, channel: buttonyChannel, vault: null, dataDir: testDir, projectRoot: process.cwd() });
+
+  await test("approval step: button click resumes with response + approvedBy", async () => {
+    capturedMessages = [];
+    const flow = parseWorkflow(`name: gate-flow
+steps:
+  - id: gate
+    approval:
+      reason: "approve action?"
+      buttons: [["Yes", "No"]]
+`).def!;
+    const runPromise = approvalEngine.run("robert", "devops", flow);
+    // Poll briefly until the approval pause registers, then resume.
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 25));
+      if (capturedMessages.length > 0) break;
+    }
+    assert.equal(capturedMessages.length, 1);
+    assert.equal(capturedMessages[0].text, "approve action?");
+    // Find the running instance id via storage
+    const { listInstances } = await import("../src/workflows/storage.js");
+    const runs = listInstances("robert", "devops", { workflowName: "gate-flow", limit: 1 });
+    const ok = approvalEngine.resume({ instanceId: runs[0].id, response: "Yes", approvedBy: "robert" });
+    assert.equal(ok, true);
+    const inst = await runPromise;
+    assert.equal(inst.status, "ok");
+    assert.equal(inst.steps.gate.approved, true);
+    assert.equal(inst.steps.gate.approvedBy, "robert");
+    assert.equal(inst.steps.gate.response, "Yes");
+  });
+
+  await test("approval step: deny response marks approved=false", async () => {
+    capturedMessages = [];
+    const flow = parseWorkflow(`name: deny-flow
+steps:
+  - id: gate
+    approval:
+      reason: "approve?"
+`).def!;
+    const runPromise = approvalEngine.run("robert", "devops", flow);
+    await new Promise((r) => setTimeout(r, 50));
+    const { listInstances } = await import("../src/workflows/storage.js");
+    const runs = listInstances("robert", "devops", { workflowName: "deny-flow", limit: 1 });
+    approvalEngine.resume({ instanceId: runs[0].id, response: "Cancel", approvedBy: "robert" });
+    const inst = await runPromise;
+    assert.equal(inst.steps.gate.approved, false);
+  });
+
+  await test("approval step: text reply via tryConsumeAsApprovalReply resumes", async () => {
+    capturedMessages = [];
+    const flow = parseWorkflow(`name: text-reply-flow
+steps:
+  - id: gate
+    approval:
+      reason: "ok?"
+`).def!;
+    const runPromise = approvalEngine.run("robert", "devops", flow);
+    await new Promise((r) => setTimeout(r, 50));
+    const consumed = approvalEngine.tryConsumeAsApprovalReply("robert", "devops", "Yes", "robert");
+    assert.equal(consumed, true);
+    const inst = await runPromise;
+    assert.equal(inst.status, "ok");
+    assert.equal(inst.steps.gate.response, "Yes");
+  });
+
+  await test("approval step: timeout fails the step with approval_timeout code", async () => {
+    capturedMessages = [];
+    const flow = parseWorkflow(`name: timeout-flow
+steps:
+  - id: gate
+    approval:
+      reason: "respond quickly"
+      timeout_ms: 100
+`).def!;
+    const inst = await approvalEngine.run("robert", "devops", flow);
+    assert.equal(inst.status, "error");
+    assert.equal(inst.steps.gate.error, "approval_timeout");
+  });
+
+  await test("approval step: encodeApprovalPayload + decodeApprovalPayload round-trip", async () => {
+    const { encodeApprovalPayload, decodeApprovalPayload } = await import("../src/workflows/steps/approval.js");
+    const payload = encodeApprovalPayload("inst-1", "gate", "Page on-call");
+    const decoded = decodeApprovalPayload(payload);
+    assert.equal(decoded?.instanceId, "inst-1");
+    assert.equal(decoded?.stepId, "gate");
+    assert.equal(decoded?.label, "Page on-call");
+  });
+
   // Cleanup
   try { rmSync(testDir, { recursive: true, force: true }); } catch {}
 
