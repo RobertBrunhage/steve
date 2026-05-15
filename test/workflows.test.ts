@@ -16,9 +16,9 @@ process.env.KELLIX_VAULT_DIR = join(testDir, "vault");
 let passed = 0;
 let failed = 0;
 
-function test(name: string, fn: () => void) {
+async function test(name: string, fn: () => void | Promise<void>) {
   try {
-    fn();
+    await fn();
     console.log(`  ✓ ${name}`);
     passed++;
   } catch (err: any) {
@@ -46,7 +46,7 @@ steps:
     run: echo hi
 `;
   const parsedRun = parseWorkflow(minimalRun);
-  test("parser: run step parses", () => {
+  await test("parser: run step parses", () => {
     assert.ok(parsedRun.def, parsedRun.errors.map((e) => e.message).join(", "));
     assert.equal(parsedRun.def?.steps[0].type, "run");
     assert.equal((parsedRun.def?.steps[0] as { run?: string }).run, "echo hi");
@@ -58,7 +58,7 @@ steps:
     script: skills/grafana/scripts/check.sh
     args: ["robert"]
 `);
-  test("parser: script step parses", () => {
+  await test("parser: script step parses", () => {
     assert.ok(parsedScript.def);
     assert.equal(parsedScript.def?.steps[0].type, "script");
   });
@@ -70,7 +70,7 @@ steps:
       prompt: "summarize the alerts"
       return: json
 `);
-  test("parser: llm step parses + return: json", () => {
+  await test("parser: llm step parses + return: json", () => {
     assert.ok(parsedLlm.def);
     const s = parsedLlm.def?.steps[0] as { type: string; prompt: string; return: string };
     assert.equal(s.type, "llm");
@@ -82,7 +82,7 @@ steps:
   - id: a
     pipeline: where ".severity == 'high'"
 `);
-  test("parser: pipeline step parses", () => {
+  await test("parser: pipeline step parses", () => {
     assert.ok(parsedPipeline.def);
     assert.equal(parsedPipeline.def?.steps[0].type, "pipeline");
   });
@@ -95,7 +95,7 @@ steps:
       timeout_ms: 60000
       buttons: [["Yes", "No"]]
 `);
-  test("parser: approval step parses", () => {
+  await test("parser: approval step parses", () => {
     assert.ok(parsedApproval.def);
     const s = parsedApproval.def?.steps[0] as { type: string; reason: string; buttons: string[][] };
     assert.equal(s.type, "approval");
@@ -110,7 +110,7 @@ steps:
     args:
       target: prod
 `);
-  test("parser: workflow (sub) step parses", () => {
+  await test("parser: workflow (sub) step parses", () => {
     assert.ok(parsedSub.def);
     assert.equal(parsedSub.def?.steps[0].type, "workflow");
   });
@@ -123,7 +123,7 @@ steps:
       workflow: investigate
       mode: sync
 `);
-  test("parser: cross_agent step parses", () => {
+  await test("parser: cross_agent step parses", () => {
     assert.ok(parsedCross.def);
     assert.equal(parsedCross.def?.steps[0].type, "cross_agent");
   });
@@ -134,7 +134,7 @@ steps:
     wait:
       for_ms: 5000
 `);
-  test("parser: wait step parses", () => {
+  await test("parser: wait step parses", () => {
     assert.ok(parsedWait.def);
     assert.equal(parsedWait.def?.steps[0].type, "wait");
   });
@@ -146,7 +146,7 @@ steps:
   - id: a
     pipeline: llm.invoke --prompt "hello world"
 `);
-  test("parser: Lobster pipeline: llm.invoke alias maps to llm step", () => {
+  await test("parser: Lobster pipeline: llm.invoke alias maps to llm step", () => {
     assert.ok(lobsterAlias.def);
     const s = lobsterAlias.def?.steps[0] as { type: string; prompt: string };
     assert.equal(s.type, "llm");
@@ -161,7 +161,7 @@ steps:
     run: oops
   unclosed bracket: [
 `);
-  test("parser: invalid YAML returns errors with line numbers", () => {
+  await test("parser: invalid YAML returns errors with line numbers", () => {
     assert.ok(badYaml.errors.length > 0);
     const fatal = badYaml.errors.find((e) => e.severity !== "warning");
     assert.ok(fatal, "expected at least one fatal error");
@@ -172,7 +172,7 @@ steps:
   - id: a
     run: echo hi
 `);
-  test("parser: missing name is a fatal error", () => {
+  await test("parser: missing name is a fatal error", () => {
     assert.ok(missingName.errors.some((e) => e.message.includes("name")));
     assert.equal(missingName.def, undefined);
   });
@@ -182,7 +182,7 @@ steps:
   - id: a
     something_unknown: foo
 `);
-  test("parser: step without recognizable type is an error", () => {
+  await test("parser: step without recognizable type is an error", () => {
     assert.ok(missingType.errors.some((e) => e.message.includes("unable to determine step type")));
   });
 
@@ -192,7 +192,7 @@ steps:
   - id: a
     run: hi
 `);
-  test("parser: unknown top-level keys are warnings, not fatal", () => {
+  await test("parser: unknown top-level keys are warnings, not fatal", () => {
     assert.ok(unknownKey.def, "should still parse to a def");
     assert.ok(unknownKey.errors.some((e) => e.severity === "warning" && e.message.includes("totally_made_up_key")));
   });
@@ -204,11 +204,11 @@ steps:
   - id: a
     run: hi2
 `);
-  test("parser: duplicate step ids are an error", () => {
+  await test("parser: duplicate step ids are an error", () => {
     assert.ok(dupIds.errors.some((e) => e.message.includes("duplicate step id")));
   });
 
-  test("parser: workflowVersion is deterministic + short", () => {
+  await test("parser: workflowVersion is deterministic + short", () => {
     const v1 = workflowVersion("hello");
     const v2 = workflowVersion("hello");
     assert.equal(v1, v2);
@@ -218,37 +218,37 @@ steps:
   // --- Expressions ---
 
   const ctxStub = { steps: { check: { id: "check", status: "ok" as const, attempt: 1, stdout: "alerts!", json: { count: 3 } } }, args: { name: "robert" } };
-  test("expr: number literals", () => assert.equal(evaluate("1 + 2", ctxStub), 3));
-  test("expr: string equality with type coercion", () => assert.equal(evaluate("$args.name == 'robert'", ctxStub), true));
-  test("expr: number-string coercion", () => assert.equal(evaluate("3 == '3'", ctxStub), true));
-  test("expr: less than", () => assert.equal(evaluate("$steps.check.json.count > 0", ctxStub), true));
-  test("expr: not-equal", () => assert.equal(evaluate("$steps.check.status != 'error'", ctxStub), true));
-  test("expr: and short-circuit", () => assert.equal(evaluate("true && false", ctxStub), false));
-  test("expr: or short-circuit", () => assert.equal(evaluate("false || 42", ctxStub), 42));
-  test("expr: missing path → null (not throw)", () => assert.equal(evaluate("$steps.unknown.stdout == null", ctxStub), true));
-  test("expr: bang operator", () => assert.equal(evaluate("!false", ctxStub), true));
-  test("expr: parens precedence", () => assert.equal(evaluate("(1 + 2) * 3", ctxStub), 9));
-  test("expr: allowlisted contains() function", () => assert.equal(evaluate("contains($steps.check.stdout, 'alert')", ctxStub), true));
-  test("expr: unknown function rejected", () => {
+  await test("expr: number literals", () => assert.equal(evaluate("1 + 2", ctxStub), 3));
+  await test("expr: string equality with type coercion", () => assert.equal(evaluate("$args.name == 'robert'", ctxStub), true));
+  await test("expr: number-string coercion", () => assert.equal(evaluate("3 == '3'", ctxStub), true));
+  await test("expr: less than", () => assert.equal(evaluate("$steps.check.json.count > 0", ctxStub), true));
+  await test("expr: not-equal", () => assert.equal(evaluate("$steps.check.status != 'error'", ctxStub), true));
+  await test("expr: and short-circuit", () => assert.equal(evaluate("true && false", ctxStub), false));
+  await test("expr: or short-circuit", () => assert.equal(evaluate("false || 42", ctxStub), 42));
+  await test("expr: missing path → null (not throw)", () => assert.equal(evaluate("$steps.unknown.stdout == null", ctxStub), true));
+  await test("expr: bang operator", () => assert.equal(evaluate("!false", ctxStub), true));
+  await test("expr: parens precedence", () => assert.equal(evaluate("(1 + 2) * 3", ctxStub), 9));
+  await test("expr: allowlisted contains() function", () => assert.equal(evaluate("contains($steps.check.stdout, 'alert')", ctxStub), true));
+  await test("expr: unknown function rejected", () => {
     let threw = false;
     try { evaluate("Math.evil()", ctxStub); } catch { threw = true; }
     assert.ok(threw, "expected unknown function to throw");
   });
-  test("expr: coerceBool", () => {
+  await test("expr: coerceBool", () => {
     assert.equal(coerceBool(""), false);
     assert.equal(coerceBool("hello"), true);
     assert.equal(coerceBool(0), false);
     assert.equal(coerceBool([]), false);
     assert.equal(coerceBool([1]), true);
   });
-  test("expr: interpolate", () => {
+  await test("expr: interpolate", () => {
     assert.equal(interpolate("hello ${$args.name}", ctxStub), "hello robert");
     assert.equal(interpolate("count=${$steps.check.json.count}", ctxStub), "count=3");
   });
 
   // --- Storage ---
 
-  test("storage: write + read round-trips a workflow", () => {
+  await test("storage: write + read round-trips a workflow", () => {
     writeWorkflow("robert", "devops", "test", minimalRun);
     const def = readWorkflow("robert", "devops", "test");
     assert.ok(def);
@@ -256,14 +256,14 @@ steps:
     assert.equal(def?.steps[0].type, "run");
   });
 
-  test("storage: list returns defined workflows", () => {
+  await test("storage: list returns defined workflows", () => {
     writeWorkflow("robert", "devops", "another", `name: another\nsteps:\n  - id: x\n    run: echo x\n`);
     const all = listWorkflows("robert", "devops");
     assert.ok(all.find((d) => d.name === "t"));
     assert.ok(all.find((d) => d.name === "another"));
   });
 
-  test("storage: delete removes a workflow", () => {
+  await test("storage: delete removes a workflow", () => {
     const ok = deleteWorkflow("robert", "devops", "another");
     assert.equal(ok, true);
     const all = listWorkflows("robert", "devops");
@@ -272,12 +272,12 @@ steps:
 
   // --- validateWorkflowYaml integration ---
 
-  test("validate: valid yaml returns ok", () => {
+  await test("validate: valid yaml returns ok", () => {
     const r = validateWorkflowYaml(minimalRun);
     assert.equal(r.ok, true);
   });
 
-  test("validate: bad yaml returns errors", () => {
+  await test("validate: bad yaml returns errors", () => {
     const r = validateWorkflowYaml(`steps:\n  - id: a\n    something_wrong: foo\n`);
     assert.equal(r.ok, false);
     assert.ok(r.errors.length > 0);
@@ -288,7 +288,12 @@ steps:
   const { createWorkflowEngine } = await import("../src/workflows/index.js");
   const { loadAllWorkflowTriggers, fingerprintWorkflowTriggers } = await import("../src/workflows/triggers.js");
 
-  const mockBrain = { think: async () => undefined, thinkIsolated: async () => undefined } as any;
+  let nextPromptResponse = "(default)";
+  const mockBrain = {
+    think: async () => undefined,
+    thinkIsolated: async () => undefined,
+    promptOnce: async () => nextPromptResponse,
+  } as any;
   const mockChannel = { name: "test", sendMessage: async () => ({ ok: true }), sendFile: async () => ({ ok: true }), editMessage: async () => ({ ok: true }) } as any;
   const engine = createWorkflowEngine({ brain: mockBrain, channel: mockChannel, vault: null, dataDir: testDir, projectRoot: process.cwd() });
 
@@ -328,34 +333,34 @@ steps:
       delay_ms: 10
 `).def!;
 
-  test("run step: success captures stdout", async () => {
+  await test("run step: success captures stdout", async () => {
     const inst = await engine.run("robert", "devops", runOk);
     assert.equal(inst.status, "ok");
     assert.equal(inst.steps.hello.status, "ok");
     assert.match(String(inst.steps.hello.stdout ?? ""), /hi from workflow/);
   });
 
-  test("run step: non-zero exit marks step + instance as error", async () => {
+  await test("run step: non-zero exit marks step + instance as error", async () => {
     const inst = await engine.run("robert", "devops", runFail);
     assert.equal(inst.status, "error");
     assert.equal(inst.steps.bad.status, "error");
   });
 
-  test("run step: on_error continue advances to next step", async () => {
+  await test("run step: on_error continue advances to next step", async () => {
     const inst = await engine.run("robert", "devops", runContinue);
     assert.equal(inst.status, "ok");
     assert.equal(inst.steps.bad.status, "error");
     assert.equal(inst.steps.good.status, "ok");
   });
 
-  test("run step: on_error stop halts workflow", async () => {
+  await test("run step: on_error stop halts workflow", async () => {
     const inst = await engine.run("robert", "devops", runStop);
     assert.equal(inst.status, "error");
     assert.equal(inst.steps.bad.status, "error");
     assert.equal(inst.steps.never, undefined);
   });
 
-  test("run step: retry retries on failure up to max", async () => {
+  await test("run step: retry retries on failure up to max", async () => {
     const start = Date.now();
     const inst = await engine.run("robert", "devops", runRetry);
     const elapsed = Date.now() - start;
@@ -364,7 +369,7 @@ steps:
     assert.ok(elapsed >= 30, `expected at least 30ms for backoff, got ${elapsed}ms`);
   });
 
-  test("run step: ${args.X} interpolation works", async () => {
+  await test("run step: ${args.X} interpolation works", async () => {
     const flow = parseWorkflow(`name: greet
 steps:
   - id: hi
@@ -375,7 +380,7 @@ steps:
     assert.match(String(inst.steps.hi.stdout ?? ""), /hello robert/);
   });
 
-  test("run step: when expression skips step", async () => {
+  await test("run step: when expression skips step", async () => {
     const flow = parseWorkflow(`name: skip
 steps:
   - id: first
@@ -392,7 +397,7 @@ steps:
     assert.equal(inst.steps.last.status, "ok");
   });
 
-  test("run step: concurrency mode skip drops second invocation while first runs", async () => {
+  await test("run step: concurrency mode skip drops second invocation while first runs", async () => {
     const slow = parseWorkflow(`name: slow
 concurrency: { mode: skip }
 steps:
@@ -419,20 +424,104 @@ steps:
     run: echo tick
 `);
 
-  test("triggers: loadAllWorkflowTriggers discovers cron entries", () => {
+  await test("triggers: loadAllWorkflowTriggers discovers cron entries", () => {
     const all = loadAllWorkflowTriggers();
     const found = all.find((t) => t.workflowName === "cron-flow");
     assert.ok(found, "expected cron-flow in triggers");
     assert.equal(found?.cron, "*/5 * * * *");
   });
 
-  test("triggers: fingerprint includes user/agent/workflow/spec", () => {
+  await test("triggers: fingerprint includes user/agent/workflow/spec", () => {
     const fp = fingerprintWorkflowTriggers([{
       userName: "robert", agentId: "devops", workflowName: "cron-flow",
       cron: "*/5 * * * *",
     }]);
     assert.equal(fp.length, 1);
     assert.match(fp[0], /workflow:robert:devops:cron-flow/);
+  });
+
+  // --- Phase 3: llm + pipeline ---
+
+  await test("llm step: returns assistant text as stdout", async () => {
+    nextPromptResponse = "the answer is 42";
+    const flow = parseWorkflow(`name: ask
+steps:
+  - id: q
+    llm:
+      prompt: "what is the answer?"
+`).def!;
+    const inst = await engine.run("robert", "devops", flow);
+    assert.equal(inst.status, "ok");
+    assert.equal(inst.steps.q.stdout, "the answer is 42");
+  });
+
+  await test("llm step: return: json extracts fenced JSON block", async () => {
+    nextPromptResponse = 'sure, here it is:\n```json\n{"hello":"world"}\n```\n';
+    const flow = parseWorkflow(`name: ask
+steps:
+  - id: q
+    llm:
+      prompt: "give me json"
+      return: json
+`).def!;
+    const inst = await engine.run("robert", "devops", flow);
+    assert.equal(inst.status, "ok");
+    assert.deepEqual(inst.steps.q.json, { hello: "world" });
+  });
+
+  await test("llm step: prompt interpolation", async () => {
+    let capturedPrompt = "";
+    mockBrain.promptOnce = async (_u: string, _a: string | undefined, prompt: string) => {
+      capturedPrompt = prompt;
+      return "ok";
+    };
+    const flow = parseWorkflow(`name: ask
+steps:
+  - id: q
+    llm:
+      prompt: "hello \${$args.name}"
+`).def!;
+    await engine.run("robert", "devops", flow, { args: { name: "robert" } });
+    assert.equal(capturedPrompt, "hello robert");
+    // restore
+    mockBrain.promptOnce = async () => nextPromptResponse;
+  });
+
+  await test("pipeline json: passes input through as json", async () => {
+    const flow = parseWorkflow(`name: pipe
+steps:
+  - id: src
+    run: echo '[1,2,3]'
+  - id: as_json
+    pipeline: json
+`).def!;
+    const inst = await engine.run("robert", "devops", flow);
+    assert.deepEqual(inst.steps.as_json.json, [1, 2, 3]);
+  });
+
+  await test("pipeline where: filters by expression", async () => {
+    const flow = parseWorkflow(`name: pipe
+steps:
+  - id: src
+    run: echo '[{"sev":"high"},{"sev":"low"},{"sev":"high"}]'
+  - id: filt
+    pipeline: where "$_.sev == 'high'"
+`).def!;
+    const inst = await engine.run("robert", "devops", flow);
+    assert.equal(Array.isArray(inst.steps.filt.json), true);
+    assert.equal((inst.steps.filt.json as unknown[]).length, 2);
+  });
+
+  await test("pipeline pick: projects fields", async () => {
+    const flow = parseWorkflow(`name: pipe
+steps:
+  - id: src
+    run: echo '[{"a":1,"b":2,"c":3}]'
+  - id: proj
+    pipeline: pick a,c
+`).def!;
+    const inst = await engine.run("robert", "devops", flow);
+    assert.deepEqual(inst.steps.proj.json, [{ a: 1, c: 3 }]);
   });
 
   // Cleanup

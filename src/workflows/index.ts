@@ -4,6 +4,8 @@ import type { Brain } from "../brain/index.js";
 import type { Channel } from "../channels/index.js";
 import type { Vault } from "../vault/index.js";
 import { WorkflowRunner } from "./runner.js";
+import { LlmStepHandler } from "./steps/llm.js";
+import { PipelineStepHandler } from "./steps/pipeline.js";
 import { RunStepHandler } from "./steps/run.js";
 import { ScriptStepHandler } from "./steps/script.js";
 
@@ -44,6 +46,8 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowRunner {
   const runner = new WorkflowRunner(deps);
   runner.registerStepHandler("run", new RunStepHandler());
   runner.registerStepHandler("script", new ScriptStepHandler());
-  // llm / pipeline / approval / workflow / cross_agent / wait registered in later phases.
+  runner.registerStepHandler("llm", new LlmStepHandler());
+  runner.registerStepHandler("pipeline", new PipelineStepHandler());
+  // approval / workflow / cross_agent / wait registered in later phases.
   return runner;
 }
