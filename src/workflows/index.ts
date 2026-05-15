@@ -5,10 +5,13 @@ import type { Channel } from "../channels/index.js";
 import type { Vault } from "../vault/index.js";
 import { WorkflowRunner } from "./runner.js";
 import { ApprovalStepHandler } from "./steps/approval.js";
+import { CrossAgentStepHandler } from "./steps/cross-agent.js";
 import { LlmStepHandler } from "./steps/llm.js";
 import { PipelineStepHandler } from "./steps/pipeline.js";
 import { RunStepHandler } from "./steps/run.js";
 import { ScriptStepHandler } from "./steps/script.js";
+import { SubWorkflowStepHandler } from "./steps/sub.js";
+import { WaitStepHandler } from "./steps/wait.js";
 
 export { WorkflowRunner } from "./runner.js";
 export { parseWorkflow, workflowVersion } from "./parser.js";
@@ -28,6 +31,7 @@ export {
   writeWorkflow,
 } from "./storage.js";
 export { appendWorkflowAudit } from "./audit.js";
+export { renderDot, renderMermaid } from "./graph.js";
 export * from "./types.js";
 
 export interface WorkflowEngineDeps {
@@ -50,6 +54,8 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowRunner {
   runner.registerStepHandler("llm", new LlmStepHandler());
   runner.registerStepHandler("pipeline", new PipelineStepHandler());
   runner.registerStepHandler("approval", new ApprovalStepHandler());
-  // workflow / cross_agent / wait registered in later phases.
+  runner.registerStepHandler("workflow", new SubWorkflowStepHandler());
+  runner.registerStepHandler("cross_agent", new CrossAgentStepHandler());
+  runner.registerStepHandler("wait", new WaitStepHandler());
   return runner;
 }

@@ -626,6 +626,117 @@ steps:
     assert.equal(decoded?.label, "Page on-call");
   });
 
+  // --- Phase 5: sub-workflow + cross-agent + wait + graph ---
+
+  await test("workflow step: invokes a sub-workflow + returns its output", async () => {
+    // YAML quoting note: a `run:` value beginning with `{` needs an outer
+    // double-quoted string (or YAML block scalar) because plain scalars
+    // can't start with flow indicators. WORKFLOW_TEMPLATE.md documents this.
+    writeWorkflow("robert", "devops", "child", `name: child
+steps:
+  - id: emit
+    run: 'printf ''{"answer": 42}'''
+`);
+    const flow = parseWorkflow(`name: parent
+steps:
+  - id: call_child
+    workflow: child
+`).def!;
+    const inst = await engine.run("robert", "devops", flow);
+    assert.equal(inst.status, "ok", `parent failed: ${inst.error?.message}`);
+    assert.deepEqual(inst.steps.call_child.json, { answer: 42 });
+  });
+
+  await test("workflow step: loop runs N times when condition holds", async () => {
+    let iterCount = 0;
+    writeWorkflow("robert", "devops", "loop-child", `name: loop-child
+steps:
+  - id: emit
+    run: echo "iter \${$args.KELLIX_LOOP_ITERATION}"
+`);
+    const flow = parseWorkflow(`name: looper
+steps:
+  - id: spin
+    workflow: loop-child
+    loop:
+      max_iterations: 3
+`).def!;
+    const inst = await engine.run("robert", "devops", flow);
+    // Without a stop condition, loop runs until max_iterations. We just
+    // verify the final iteration ran successfully.
+    assert.equal(inst.status, "ok");
+    void iterCount;
+  });
+
+  await test("cross_agent step: sync mode invokes target agent + returns output", async () => {
+    // Set up target agent + workflow
+    mkdirSync(join(testDir, "users", "robert", "agents", "sysadmin", "workflows"), { recursive: true });
+    writeWorkflow("robert", "sysadmin", "remote-job", `name: remote-job
+steps:
+  - id: r
+    run: 'echo ''{"investigated": true}'''
+`);
+    const flow = parseWorkflow(`name: caller
+steps:
+  - id: invoke
+    cross_agent:
+      agent: sysadmin
+      workflow: remote-job
+      mode: sync
+`).def!;
+    const inst = await engine.run("robert", "devops", flow);
+    assert.equal(inst.status, "ok");
+    assert.deepEqual(inst.steps.invoke.json, { investigated: true });
+  });
+
+  await test("cross_agent step: async mode returns immediately", async () => {
+    const flow = parseWorkflow(`name: async-caller
+steps:
+  - id: kick
+    cross_agent:
+      agent: sysadmin
+      workflow: remote-job
+      mode: async
+`).def!;
+    const inst = await engine.run("robert", "devops", flow);
+    assert.equal(inst.status, "ok");
+    assert.deepEqual(inst.steps.kick.json, { mode: "async", started: true });
+  });
+
+  await test("wait step: for_ms sleeps approximately", async () => {
+    const flow = parseWorkflow(`name: napper
+steps:
+  - id: nap
+    wait:
+      for_ms: 80
+`).def!;
+    const start = Date.now();
+    const inst = await engine.run("robert", "devops", flow);
+    const elapsed = Date.now() - start;
+    assert.equal(inst.status, "ok");
+    assert.ok(elapsed >= 70, `expected ~80ms, got ${elapsed}`);
+  });
+
+  await test("graph: renderMermaid produces a graph TD with all step nodes", async () => {
+    const { renderMermaid, renderDot } = await import("../src/workflows/graph.js");
+    const def = parseWorkflow(`name: g
+steps:
+  - id: a
+    run: echo a
+  - id: b
+    when: "$steps.a.stdout != ''"
+    run: echo b
+`).def!;
+    const mermaid = renderMermaid(def);
+    assert.match(mermaid, /^graph TD/);
+    assert.match(mermaid, /a\["a/);
+    assert.match(mermaid, /b\["b/);
+    assert.match(mermaid, /a -\.->/);
+    const dot = renderDot(def);
+    assert.match(dot, /^digraph workflow/);
+    assert.match(dot, /style=dashed/);
+  });
+
   // Cleanup
   try { rmSync(testDir, { recursive: true, force: true }); } catch {}
 

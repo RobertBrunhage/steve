@@ -8,6 +8,7 @@ import {
   inputClass,
 } from "../components.js";
 import { formatDateTime, layout, nav } from "./layout.js";
+import { renderMermaid } from "../../workflows/graph.js";
 import type { WorkflowDef, WorkflowInstance } from "../../workflows/types.js";
 
 function statusBadge(status: string): string {
@@ -132,6 +133,20 @@ export function renderWorkflowDetail(opts: WorkflowDetailOptions): string {
     </form>
   `;
 
+  const mermaid = renderMermaid(workflow);
+  const graphBlock = `
+    <pre class="mermaid bg-white border border-border rounded-lg p-4 overflow-auto text-xs">${escapeHtml(mermaid)}</pre>
+    <details class="mt-2"><summary class="text-xs text-neutral-500 cursor-pointer">source</summary><pre class="text-xs bg-neutral-100 rounded p-2 mt-1 overflow-auto">${escapeHtml(mermaid)}</pre></details>
+    <script type="module">
+      if (!window.__mermaidLoaded) {
+        window.__mermaidLoaded = true;
+        const mod = await import('https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs');
+        mod.default.initialize({ startOnLoad: false, theme: 'neutral' });
+        await mod.default.run({ querySelector: 'pre.mermaid' });
+      }
+    </script>
+  `;
+
   return layout(`${workflow.name}`, `
     ${nav(csrfToken, "home")}
     <a href="/users/${slug}/agents/${agentSlug}/workflows" class="text-sm text-neutral-400 hover:text-neutral-600 transition-colors">&larr; Workflows</a>
@@ -140,6 +155,7 @@ export function renderWorkflowDetail(opts: WorkflowDetailOptions): string {
       <p class="text-xs text-neutral-400 mt-2">${escapeHtml(workflow.description || "")}</p>
     </div>
     ${Section({ title: "Trigger", className: "mb-6", children: runForm })}
+    ${Section({ title: "Graph", className: "mb-6", children: graphBlock })}
     ${Section({ title: "Steps", className: "mb-6", children: stepsBlock })}
     ${Section({ title: "Recent runs", children: runs.length > 0 ? recentRuns : `<p class="text-sm text-neutral-400">No runs yet.</p>` })}
   `, { width: "app" });
