@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { APP_SLUG } from "./brand.js";
 import { config } from "./config.js";
+import { readUserAgentsConfig } from "./user-agents.js";
 import { toUserSlug, type UsersMap, uniqueUserSlugs } from "./users.js";
 
 export interface UserAgentRecord {
@@ -8,7 +10,8 @@ export interface UserAgentRecord {
   port: number;
 }
 
-export type UserAgentState = Record<string, UserAgentRecord>;
+/** State keyed by user → agentId → record. */
+export type UserAgentState = Record<string, Record<string, UserAgentRecord>>;
 
 const USER_AGENT_STATE_FILE = "opencode-agents.json";
 const USER_AGENT_COMPOSE_FILE = "agents.compose.yml";
@@ -30,10 +33,7 @@ function normalizeUserAgentRecord(value: unknown): UserAgentRecord | null {
   if (!isRecord(value)) return null;
   const port = Number(value.port);
   if (!Number.isFinite(port) || port <= 0) return null;
-  return {
-    enabled: value.enabled !== false,
-    port,
-  };
+  return { enabled: value.enabled !== false, port };
 }
 
 export function readUserAgentState(): UserAgentState {
@@ -43,9 +43,21 @@ export function readUserAgentState(): UserAgentState {
     const data = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
     const next: UserAgentState = {};
     for (const [userName, value] of Object.entries(data)) {
-      const record = normalizeUserAgentRecord(value);
-      if (!record) continue;
-      next[toUserSlug(userName)] = record;
+      const user = toUserSlug(userName);
+      if (!isRecord(value)) continue;
+      // Legacy single-record shape: { [user]: { enabled, port } } — promote to kellix agent.
+      if ("port" in value || "enabled" in value) {
+        const record = normalizeUserAgentRecord(value);
+        if (record) next[user] = { [APP_SLUG]: record };
+        continue;
+      }
+      // New nested shape: { [user]: { [agentId]: { enabled, port } } }
+      const agents: Record<string, UserAgentRecord> = {};
+      for (const [agentId, agentValue] of Object.entries(value)) {
+        const record = normalizeUserAgentRecord(agentValue);
+        if (record) agents[toUserSlug(agentId)] = record;
+      }
+      if (Object.keys(agents).length > 0) next[user] = agents;
     }
     return next;
   } catch {
@@ -58,25 +70,52 @@ export function writeUserAgentState(state: UserAgentState): void {
   writeFileSync(getUserAgentStatePath(), `${JSON.stringify(state, null, 2)}\n`, "utf-8");
 }
 
-export function allocateUserAgentPort(state: UserAgentState, userName: string): number {
-  const name = toUserSlug(userName);
-  const existing = state[name]?.port;
-  if (existing) return existing;
-  const nextPort = Math.max(config.opencodePortBase, ...Object.values(state).map((entry) => entry.port)) + 1;
-  return nextPort;
+function allPorts(state: UserAgentState): number[] {
+  return Object.values(state).flatMap((agents) => Object.values(agents).map((entry) => entry.port));
 }
 
-export function upsertUserAgentRecord(state: UserAgentState, userName: string, patch: Partial<UserAgentRecord>): UserAgentState {
-  const name = toUserSlug(userName);
-  const existing = state[name];
-  const port = patch.port ?? existing?.port ?? allocateUserAgentPort(state, name);
+export function allocateUserAgentPort(state: UserAgentState, userName: string, agentId: string): number {
+  const user = toUserSlug(userName);
+  const id = toUserSlug(agentId);
+  const existing = state[user]?.[id]?.port;
+  if (existing) return existing;
+  const ports = allPorts(state);
+  const base = ports.length === 0 ? config.opencodePortBase : Math.max(config.opencodePortBase, ...ports);
+  return base + 1;
+}
+
+export function upsertUserAgentRecord(state: UserAgentState, userName: string, agentId: string, patch: Partial<UserAgentRecord>): UserAgentState {
+  const user = toUserSlug(userName);
+  const id = toUserSlug(agentId);
+  const existing = state[user]?.[id];
+  const port = patch.port ?? existing?.port ?? allocateUserAgentPort(state, user, id);
   return {
     ...state,
-    [name]: {
-      enabled: patch.enabled ?? existing?.enabled ?? true,
-      port,
+    [user]: {
+      ...(state[user] || {}),
+      [id]: {
+        enabled: patch.enabled ?? existing?.enabled ?? true,
+        port,
+      },
     },
   };
+}
+
+export function removeUserAgentRecord(state: UserAgentState, userName: string, agentId: string): UserAgentState {
+  const user = toUserSlug(userName);
+  const id = toUserSlug(agentId);
+  const userAgents = state[user];
+  if (!userAgents || !(id in userAgents)) return state;
+  const { [id]: _removed, ...rest } = userAgents;
+  if (Object.keys(rest).length === 0) {
+    const { [user]: _user, ...next } = state;
+    return next;
+  }
+  return { ...state, [user]: rest };
+}
+
+export function getUserAgentRecord(state: UserAgentState, userName: string, agentId: string): UserAgentRecord | undefined {
+  return state[toUserSlug(userName)]?.[toUserSlug(agentId)];
 }
 
 export function syncUserAgentState(users: UsersMap): UserAgentState {
@@ -84,34 +123,59 @@ export function syncUserAgentState(users: UsersMap): UserAgentState {
   const knownUsers = new Set(uniqueUserSlugs(users));
   const next: UserAgentState = {};
 
-  for (const userName of knownUsers) {
-    const record = current[userName];
-    if (!record) continue;
-    next[userName] = record;
+  for (const user of knownUsers) {
+    const agents = current[user];
+    if (!agents) continue;
+    const validIds = new Set(readUserAgentsConfig(user).agents.map((agent) => agent.id));
+    const keep: Record<string, UserAgentRecord> = {};
+    for (const [agentId, record] of Object.entries(agents)) {
+      if (validIds.has(agentId)) keep[agentId] = record;
+    }
+    if (Object.keys(keep).length > 0) next[user] = keep;
   }
 
   if (JSON.stringify(current) !== JSON.stringify(next)) {
     writeUserAgentState(next);
   }
-
   return next;
 }
 
-export function listEnabledUserAgents(state: UserAgentState): string[] {
-  return Object.entries(state)
-    .filter(([, record]) => record.enabled)
-    .map(([userName]) => userName)
-    .sort((a, b) => a.localeCompare(b));
+export interface EnabledUserAgent {
+  userName: string;
+  agentId: string;
+  port: number;
+}
+
+export function listEnabledUserAgents(state: UserAgentState): EnabledUserAgent[] {
+  const out: EnabledUserAgent[] = [];
+  for (const [userName, agents] of Object.entries(state)) {
+    for (const [agentId, record] of Object.entries(agents)) {
+      if (record.enabled) out.push({ userName, agentId, port: record.port });
+    }
+  }
+  return out.sort((a, b) => `${a.userName}/${a.agentId}`.localeCompare(`${b.userName}/${b.agentId}`));
 }
 
 function renderComposeServices(state: UserAgentState): string[] {
   const lines: string[] = [];
-  for (const [userName, record] of Object.entries(state).sort((a, b) => a[0].localeCompare(b[0]))) {
+  const entries: Array<{ userName: string; agentId: string; record: UserAgentRecord }> = [];
+  for (const [userName, agents] of Object.entries(state)) {
+    for (const [agentId, record] of Object.entries(agents)) {
+      entries.push({ userName, agentId, record });
+    }
+  }
+  entries.sort((a, b) => `${a.userName}/${a.agentId}`.localeCompare(`${b.userName}/${b.agentId}`));
+
+  for (const { userName, agentId, record } of entries) {
     if (!record.enabled) continue;
+    const service = `opencode-${userName}-${agentId}`;
+    const containerName = `\${KELLIX_PROJECT:-kellix}-opencode-${userName}-${agentId}`;
+    const subpathData = `users/${userName}/agents/${agentId}`;
+    const subpathState = `users/${userName}/agents/${agentId}/.opencode-data`;
     lines.push(
-      `  opencode-${userName}:`,
+      `  ${service}:`,
       "    image: ${KELLIX_OPENCODE_IMAGE:-" + DEFAULT_OPENCODE_IMAGE + "}",
-      `    container_name: \${KELLIX_PROJECT:-kellix}-opencode-${userName}`,
+      `    container_name: ${containerName}`,
       "    restart: unless-stopped",
       '    command: ["serve", "--port", "3456", "--hostname", "0.0.0.0"]',
       "    working_dir: /data",
@@ -124,7 +188,7 @@ function renderComposeServices(state: UserAgentState): string[] {
       "        source: kellix-data",
       "        target: /data",
       "        volume:",
-      `          subpath: users/${userName}`,
+      `          subpath: ${subpathData}`,
       "      - type: volume",
       "        source: kellix-data",
       "        target: /data/shared",
@@ -134,7 +198,7 @@ function renderComposeServices(state: UserAgentState): string[] {
       "        source: kellix-data",
       "        target: /root/.local/share/opencode",
       "        volume:",
-      `          subpath: users/${userName}/.opencode-data`,
+      `          subpath: ${subpathState}`,
       "    networks: [kellix-net]",
       "",
     );
@@ -147,7 +211,6 @@ export function renderUserAgentsCompose(state: UserAgentState): string {
   if (services.length === 0) {
     return "services: {}\n";
   }
-
   return [
     "services:",
     ...services,

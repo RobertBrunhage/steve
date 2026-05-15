@@ -352,11 +352,107 @@ export function renderUserIntegrationsPage(name: string, ocStatus: string, csrfT
   return renderUserFrame(name, ocStatus, csrfToken, "integrations", section, options);
 }
 
-export function renderUserAgentPage(name: string, ocStatus: string, ocUrl: string, csrfToken: string, options?: RenderUserOptions): string {
+export function renderUserAgentPage(name: string, ocStatus: string, _ocUrl: string, csrfToken: string, options?: RenderUserOptions): string {
   const slug = encodeURIComponent(name);
-  const currentModel = options?.currentModel || "";
+  const agents = options?.kellixAgents || [];
+  const defaultAgentId = options?.defaultAgentId || "kellix";
+  const agentsSection = Section({
+    title: "Kellix agents",
+    description: "Each agent has its own workspace, sessions, and Telegram routing. Open an agent to configure its profile, model, runtime, and skills.",
+    className: "mb-6",
+    children: `
+      <div class="space-y-3 mb-6">
+        ${agents.map((agent) => `
+          <a href="/users/${slug}/agents/${encodeURIComponent(agent.id)}" class="block border border-border rounded-xl p-4 sm:p-5 hover:border-neutral-400 transition-colors">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div class="min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-base font-medium text-neutral-900">${escapeHtml(agent.name)}</span>
+                  <code class="text-xs text-neutral-400 break-all">${escapeHtml(agent.id)}</code>
+                  ${agent.id === defaultAgentId ? Badge({ tone: "ok", children: "Default" }) : ""}
+                  ${agent.setupStatus === "needs_setup" ? Badge({ tone: "warn", children: "Needs setup" }) : ""}
+                </div>
+                <p class="text-xs text-neutral-400 mt-2 max-w-3xl whitespace-pre-wrap break-words">${escapeHtml(agent.roleSummary || agent.goal || "This agent will ask what it should do the first time you message it.")}</p>
+                <p class="text-xs text-neutral-400 mt-2">Telegram: ${agent.channels?.telegram?.chatId ? `chat ${escapeHtml(agent.channels.telegram.chatId)}` : "uses default chat unless an agent bot is configured"}</p>
+              </div>
+              <div class="flex gap-2 sm:justify-end flex-wrap flex-shrink-0 items-center" onclick="event.stopPropagation()">
+                ${agent.id !== defaultAgentId ? `
+                <form method="POST" action="/users/${slug}/agents/${encodeURIComponent(agent.id)}/default">
+                  ${hiddenCsrf(csrfToken)}
+                  ${Button({ variant: "secondary", size: "sm", children: "Set default" })}
+                </form>
+                ` : ""}
+                ${agent.id !== "kellix" ? `
+                <form method="POST" action="/users/${slug}/agents/${encodeURIComponent(agent.id)}/delete" onsubmit="return confirm('Delete ${escapeHtml(agent.name)}?')">
+                  ${hiddenCsrf(csrfToken)}
+                  ${Button({ variant: "danger", size: "sm", children: "Delete" })}
+                </form>
+                ` : ""}
+                <span class="text-xs text-neutral-400">Open &rarr;</span>
+              </div>
+            </div>
+          </a>
+        `).join("")}
+      </div>
+      <form method="POST" action="/users/${slug}/agents" class="border border-dashed border-neutral-200 rounded-xl p-4 sm:p-5">
+        ${hiddenCsrf(csrfToken)}
+        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-4">
+          <div>
+            <h3 class="text-sm font-medium text-neutral-900">Create specialist agent</h3>
+            <p class="text-xs text-neutral-400 mt-1">Give it a stable ID and name. The agent will ask what it is for when you first message it.</p>
+          </div>
+          ${Button({ variant: "primary", children: "Create" })}
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 mb-3">
+          <div>
+            <label for="agent_id" class="block text-xs font-medium text-neutral-600 mb-1">ID</label>
+            <input id="agent_id" name="id" class="${inputClass}" placeholder="sysadmin" required>
+            <p class="text-xs text-neutral-400 mt-2">Lowercase handle used for routing and files.</p>
+          </div>
+          <div>
+            <label for="agent_name" class="block text-xs font-medium text-neutral-600 mb-1">Name</label>
+            <input id="agent_name" name="name" class="${inputClass}" placeholder="Sysadmin" required>
+          </div>
+        </div>
+      </form>
+    `,
+  });
+
+  return renderUserFrame(name, ocStatus, csrfToken, "agent", agentsSection, options);
+}
+
+// --- Per-agent detail page ------------------------------------------------
+
+export interface RenderUserAgentDetailOptions {
+  userName: string;
+  agent: KellixUserAgent;
+  defaultAgentId: string;
+  csrfToken: string;
+  runtime: {
+    status: "running" | "stopped" | "paused" | "unknown";
+    agentEnabled: boolean;
+    ocUrl: string;
+    currentModel: string | null;
+    thinkingLevel: string;
+    modelProviders: Array<{ id: string; name: string; models: Array<{ id: string; name: string; variants: string[] }> }>;
+  };
+  opencodeImage?: string;
+}
+
+export function renderUserAgentDetailPage(opts: RenderUserAgentDetailOptions): string {
+  const { userName, agent, defaultAgentId, csrfToken, runtime, opencodeImage } = opts;
+  const slug = encodeURIComponent(userName);
+  const agentSlug = encodeURIComponent(agent.id);
+  const isDefault = agent.id === defaultAgentId;
+  const isKellix = agent.id === "kellix";
+  const textareaClass = `${inputClass} min-h-24 resize-y leading-relaxed`;
+
+  const statusDot: "ok" | "warn" | "off" = runtime.status === "running" ? "ok" : runtime.agentEnabled ? "warn" : "off";
+  const statusLabel = runtime.status === "running" ? "Running" : runtime.agentEnabled ? "Stopped" : "Paused";
+
+  const currentModel = runtime.currentModel || "";
   const providers = ensureCurrentModelIsSelectable(
-    (options?.modelProviders || []).map((provider) => ({
+    runtime.modelProviders.map((provider) => ({
       ...provider,
       models: provider.models.map((model) => ({
         ...model,
@@ -374,16 +470,6 @@ export function renderUserAgentPage(name: string, ocStatus: string, ocUrl: strin
     ? configuredModelId
     : "";
 
-  const currentModelPill = currentModel ? `
-    <div class="flex items-center gap-3 mb-4 px-3 py-2.5 bg-surface rounded-lg border border-border">
-      ${StatusDot({ state: "ok" })}
-      <span class="text-sm text-neutral-700 font-mono break-all">${escapeHtml(currentModel)}</span>
-    </div>
-  ` : "";
-
-  // Alpine state for the dependent provider/model dropdown. Both selects are
-  // x-model bound; switching providers re-renders the model options via x-for
-  // and snaps to the first model if the previous selection isn't valid.
   const pickerState = jsonAttr({
     providers,
     providerId: initialProviderId,
@@ -391,9 +477,88 @@ export function renderUserAgentPage(name: string, ocStatus: string, ocUrl: strin
     initialModelId,
   });
 
+  const runtimeControls = `
+    <div class="flex flex-wrap gap-2">
+      ${runtime.agentEnabled
+        ? `
+          <form method="POST" action="/users/${slug}/agents/${agentSlug}/stop" class="inline">
+            ${hiddenCsrf(csrfToken)}
+            ${Button({ variant: "danger", size: "sm", children: "Stop" })}
+          </form>
+          <form method="POST" action="/users/${slug}/agents/${agentSlug}/${runtime.status === "running" ? "restart" : "start"}" class="inline">
+            ${hiddenCsrf(csrfToken)}
+            ${Button({ variant: "secondary", size: "sm", children: runtime.status === "running" ? "Restart" : "Start" })}
+          </form>
+        `
+        : `
+          <form method="POST" action="/users/${slug}/agents/${agentSlug}/start" class="inline">
+            ${hiddenCsrf(csrfToken)}
+            ${Button({ variant: "primary", size: "sm", children: "Start agent" })}
+          </form>
+        `}
+    </div>
+  `;
+
+  const profileSection = Section({
+    title: "Profile",
+    description: "Durable role + instructions for this agent. Stored in this agent's AGENTS.md.",
+    className: "mb-6",
+    children: `
+      ${agent.setupStatus === "needs_setup" ? Badge({ tone: "warn", children: "Needs setup", className: "mb-4" }) : ""}
+      <form method="POST" action="/users/${slug}/agents/${agentSlug}" class="space-y-3">
+        ${hiddenCsrf(csrfToken)}
+        <div>
+          <label class="block text-xs font-medium text-neutral-600 mb-1">Display name</label>
+          <input type="text" name="name" class="${inputClass}" value="${escapeHtml(agent.name)}" required>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-neutral-600 mb-1">Role summary</label>
+          <input type="text" name="roleSummary" class="${inputClass}" value="${escapeHtml(agent.roleSummary || agent.goal || "")}" placeholder="Short summary shown in the dashboard">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-neutral-600 mb-1">Agent instructions</label>
+          <textarea name="instructions" class="${textareaClass}" placeholder="Usually filled in by the agent after first-use setup.">${escapeHtml(agent.instructions || "")}</textarea>
+          <p class="text-xs text-neutral-400 mt-2">Stored in <code>agents/${escapeHtml(agent.id)}/AGENTS.md</code>. Leave blank to let the agent configure itself.</p>
+        </div>
+        <div class="flex justify-end gap-2 flex-wrap">
+          ${!isKellix ? `
+          <button type="submit" form="reset-${escapeHtml(agent.id)}" class="inline-flex items-center justify-center gap-2 font-medium rounded-lg transition-colors whitespace-nowrap focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white focus:ring-emerald-500/40 disabled:opacity-50 disabled:cursor-not-allowed px-3 py-1.5 text-xs bg-transparent text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100">Reset setup</button>
+          ` : ""}
+          ${Button({ variant: "secondary", size: "sm", children: "Save profile" })}
+        </div>
+      </form>
+      ${!isKellix ? `
+      <form id="reset-${escapeHtml(agent.id)}" method="POST" action="/users/${slug}/agents/${agentSlug}/reset-setup">
+        ${hiddenCsrf(csrfToken)}
+      </form>
+      ` : ""}
+    `,
+  });
+
+  const telegramSection = Section({
+    title: "Telegram",
+    description: "Optional dedicated Telegram bot/chat for this agent. Leave blank to share the member's main Telegram.",
+    className: "mb-6",
+    children: `
+      <form method="POST" action="/users/${slug}/agents/${agentSlug}/telegram" class="space-y-3">
+        ${hiddenCsrf(csrfToken)}
+        <div>
+          <label class="block text-xs font-medium text-neutral-600 mb-1">Agent bot token</label>
+          <input type="password" name="bot_token" class="${inputClass}" placeholder="Blank keeps current token">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-neutral-600 mb-1">Telegram chat ID</label>
+          <input type="text" name="chat_id" class="${inputClass}" value="${escapeHtml(agent.channels?.telegram?.chatId || "")}" placeholder="Uses member chat when blank">
+        </div>
+        <div class="flex justify-end">
+          ${Button({ variant: "secondary", size: "sm", children: "Save Telegram" })}
+        </div>
+      </form>
+    `,
+  });
+
   const modelForm = providers.length > 0 ? `
-    ${!currentModel ? `<p class="text-xs text-neutral-400 mb-3">Pick a provider and model below, then save to get started.</p>` : ""}
-    <form method="POST" action="/users/${slug}/agent/model"
+    <form method="POST" action="/users/${slug}/agents/${agentSlug}/model"
       x-data='${pickerState}'
       x-init="$nextTick(() => {
         const cm = (providers.find((p) => p.id === providerId) || { models: [] }).models;
@@ -409,138 +574,56 @@ export function renderUserAgentPage(name: string, ocStatus: string, ocUrl: strin
       class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,220px)_auto] gap-3 items-end">
       ${hiddenCsrf(csrfToken)}
       <div>
-        <label for="provider_id" class="block text-xs text-neutral-500 mb-1">Provider</label>
-        <select id="provider_id" name="provider_id" x-model="providerId" class="${inputClass}">
+        <label class="block text-xs text-neutral-500 mb-1">Provider</label>
+        <select name="provider_id" x-model="providerId" class="${inputClass}">
           <template x-for="p in providers" :key="p.id">
             <option :value="p.id" x-text="p.name"></option>
           </template>
         </select>
       </div>
       <div>
-        <label for="model_id" class="block text-xs text-neutral-500 mb-1">Model</label>
-        <select id="model_id" name="model_id" x-model="modelId" class="${inputClass}">
+        <label class="block text-xs text-neutral-500 mb-1">Model</label>
+        <select name="model_id" x-model="modelId" class="${inputClass}">
           <template x-for="m in (providers.find((p) => p.id === providerId) || { models: [] }).models" :key="m.id">
             <option :value="m.id" x-text="m.name"></option>
           </template>
         </select>
       </div>
       <div x-show="(((providers.find((p) => p.id === providerId) || { models: [] }).models.find((m) => m.id === modelId) || { variants: [] }).variants || []).length > 0" x-cloak>
-        <label for="thinking_level" class="block text-xs font-medium text-neutral-600 mb-1">Thinking</label>
-        <select id="thinking_level" name="thinking_level" class="${inputClass}">
-          <option value="default"${(options?.thinkingLevel || "default") === "default" ? " selected" : ""}>Default</option>
+        <label class="block text-xs font-medium text-neutral-600 mb-1">Thinking</label>
+        <select name="thinking_level" class="${inputClass}">
+          <option value="default"${(runtime.thinkingLevel || "default") === "default" ? " selected" : ""}>Default</option>
           <template x-for="variant in (((providers.find((p) => p.id === providerId) || { models: [] }).models.find((m) => m.id === modelId) || { variants: [] }).variants || [])" :key="variant">
-            <option :value="variant" x-text="variant" :selected="variant === '${escapeHtml(options?.thinkingLevel || "")}'"></option>
+            <option :value="variant" x-text="variant" :selected="variant === '${escapeHtml(runtime.thinkingLevel || "")}'"></option>
           </template>
         </select>
       </div>
       ${Button({ variant: "primary", children: "Save" })}
     </form>
-    <p class="text-xs text-neutral-400 mt-3">${currentModel ? "The agent restarts automatically after saving so changes take effect right away." : "Kellix will restart the agent after saving."}</p>
-  ` : `
-    <p class="text-xs text-neutral-400">No models available yet. Start the agent first — providers and models will appear once the runtime is ready.</p>
-  `;
+  ` : `<p class="text-xs text-neutral-400">No models available. Start the agent first.</p>`;
 
   const modelSection = Section({
     title: "AI model",
-    description: "The model Kellix uses when responding to Telegram messages and running background tasks for this member.",
+    description: "The model this agent uses when responding.",
     className: "mb-6",
     children: `
-      ${currentModelPill}
+      ${currentModel ? `
+        <div class="flex items-center gap-3 mb-4 px-3 py-2.5 bg-surface rounded-lg border border-border">
+          ${StatusDot({ state: "ok" })}
+          <span class="text-sm text-neutral-700 font-mono break-all">${escapeHtml(currentModel)}</span>
+        </div>
+      ` : ""}
       ${modelForm}
     `,
   });
 
-  const runtimeSection = Section({
-    title: "OpenCode runtime",
-    description: "Pull the currently configured OpenCode image and recreate this member's agent. Kellix itself stays on its installed version.",
-    className: "mb-6",
-    children: `
-      <form method="POST" action="/users/${slug}/update-opencode" class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-        ${hiddenCsrf(csrfToken)}
-        <div class="min-w-0">
-          <p class="text-xs text-neutral-400">Use this after upstream OpenCode ships new models or provider updates.</p>
-          <p class="text-xs text-neutral-400 mt-1 truncate">Image: <code class="text-neutral-600">${escapeHtml(options?.opencodeImage || "configured OpenCode image")}</code></p>
-        </div>
-        ${Button({ variant: "secondary", children: "Update OpenCode" })}
-      </form>
-    `,
-  });
-
-  const agents = options?.kellixAgents || [];
-  const agentsSection = Section({
-    title: "Kellix agents",
-    description: "Create specialist agents with their own persona, goal, sessions, and scheduled tasks. Existing users keep the default Kellix agent.",
-    className: "mb-6",
-    children: `
-      <div class="space-y-2 mb-4">
-        ${agents.map((agent) => `
-          <div class="border border-border rounded-lg p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div class="min-w-0">
-              <div class="flex items-center gap-2 flex-wrap">
-                <span class="text-sm font-medium text-neutral-900">${escapeHtml(agent.name)}</span>
-                <code class="text-xs text-neutral-400">${escapeHtml(agent.id)}</code>
-                ${agent.id === (options?.defaultAgentId || "kellix") ? Badge({ tone: "ok", children: "Default" }) : ""}
-              </div>
-              <p class="text-xs text-neutral-400 mt-1">${escapeHtml(agent.goal || "No goal set yet.")}</p>
-              <p class="text-xs text-neutral-400 mt-1">Telegram: ${agent.channels?.telegram?.chatId ? `chat ${escapeHtml(agent.channels.telegram.chatId)}` : "uses default chat unless an agent bot is configured"}</p>
-            </div>
-            <form method="POST" action="/users/${slug}/agents/${encodeURIComponent(agent.id)}" class="grid grid-cols-1 sm:grid-cols-[140px_minmax(0,1fr)_auto] gap-2 sm:items-end">
-              ${hiddenCsrf(csrfToken)}
-              <input type="text" name="name" class="${inputClass}" value="${escapeHtml(agent.name)}" required>
-              <input type="text" name="goal" class="${inputClass}" value="${escapeHtml(agent.goal)}" required>
-              ${Button({ variant: "secondary", size: "sm", children: "Save" })}
-            </form>
-            <form method="POST" action="/users/${slug}/agents/${encodeURIComponent(agent.id)}/telegram" class="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_150px_auto] gap-2 sm:items-end">
-              ${hiddenCsrf(csrfToken)}
-              <input type="password" name="bot_token" class="${inputClass}" placeholder="Bot token (blank keeps current)">
-              <input type="text" name="chat_id" class="${inputClass}" value="${escapeHtml(agent.channels?.telegram?.chatId || "")}" placeholder="Chat ID">
-              ${Button({ variant: "secondary", size: "sm", children: "Save Telegram" })}
-            </form>
-            <div class="flex gap-2">
-              ${agent.id !== (options?.defaultAgentId || "kellix") ? `
-              <form method="POST" action="/users/${slug}/agents/${encodeURIComponent(agent.id)}/default">
-                ${hiddenCsrf(csrfToken)}
-                ${Button({ variant: "secondary", size: "sm", children: "Set default" })}
-              </form>
-              ` : ""}
-              ${agent.id !== "kellix" ? `
-              <form method="POST" action="/users/${slug}/agents/${encodeURIComponent(agent.id)}/delete" onsubmit="return confirm('Delete ${escapeHtml(agent.name)}?')">
-                ${hiddenCsrf(csrfToken)}
-                ${Button({ variant: "danger", size: "sm", children: "Delete" })}
-              </form>
-              ` : ""}
-            </div>
-          </div>
-        `).join("")}
-      </div>
-      <form method="POST" action="/users/${slug}/agents" class="grid grid-cols-1 lg:grid-cols-[180px_220px_minmax(0,1fr)_auto] gap-3 items-end">
-        ${hiddenCsrf(csrfToken)}
-        <div>
-          <label for="agent_id" class="block text-xs text-neutral-500 mb-1">ID</label>
-          <input id="agent_id" name="id" class="${inputClass}" placeholder="sysadmin" required>
-        </div>
-        <div>
-          <label for="agent_name" class="block text-xs text-neutral-500 mb-1">Name</label>
-          <input id="agent_name" name="name" class="${inputClass}" placeholder="Sysadmin" required>
-        </div>
-        <div>
-          <label for="agent_goal" class="block text-xs text-neutral-500 mb-1">Goal</label>
-          <input id="agent_goal" name="goal" class="${inputClass}" placeholder="Watch my cluster and escalate when health checks fail" required>
-        </div>
-        ${Button({ variant: "primary", children: "Create" })}
-      </form>
-    `,
-  });
-
-  const sessionsSection = ocUrl ? `
+  const sessionsBlock = runtime.ocUrl ? `
     <div class="bg-white border border-border rounded-lg overflow-hidden mb-6">
       <div class="flex items-center justify-between px-5 py-3 border-b border-border">
         <h2 class="text-sm font-medium text-neutral-900">Sessions</h2>
-        <a href="${ocUrl}/L2RhdGE" target="_blank"
-          class="text-xs text-neutral-400 hover:text-neutral-600 transition-colors">Open in new tab &nearr;</a>
+        <a href="${runtime.ocUrl}" target="_blank" class="text-xs text-neutral-400 hover:text-neutral-600 transition-colors">Open in new tab &nearr;</a>
       </div>
-      <p class="text-xs text-neutral-400 px-5 py-2">Live view of the agent's coding environment. Click the project name (top-left) and search <code class="text-neutral-600">//data</code> to browse past sessions.</p>
-      <iframe src="${ocUrl}" class="w-full border-0" style="height:600px"></iframe>
+      <iframe src="${runtime.ocUrl}" class="w-full border-0" style="height:600px"></iframe>
     </div>
   ` : Section({
     title: "Sessions",
@@ -550,22 +633,74 @@ export function renderUserAgentPage(name: string, ocStatus: string, ocUrl: strin
 
   const logsSection = Section({
     title: "Logs",
-    description: "Recent output from this member's agent. Updates every few seconds.",
+    description: "Recent output from this agent. Updates every few seconds.",
     children: `
       <pre id="logs"
            class="bg-neutral-100 rounded-lg p-4 text-xs text-neutral-500 font-mono overflow-auto max-h-60 whitespace-pre-wrap"
-           hx-get="/users/${slug}/logs"
+           hx-get="/users/${slug}/agents/${agentSlug}/logs"
            hx-trigger="load, every 5s"
            hx-swap="innerHTML"
            hx-on::after-settle="this.scrollTop = this.scrollHeight">Loading…</pre>
     `,
   });
 
-  return renderUserFrame(name, ocStatus, csrfToken, "agent", `
+  const runtimeSection = Section({
+    title: "Runtime",
+    description: `Container: opencode-${escapeHtml(userName)}-${escapeHtml(agent.id)}. Workspace: <code>users/${escapeHtml(userName)}/agents/${escapeHtml(agent.id)}</code>.`,
+    className: "mb-6",
+    children: `
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+        <div class="flex items-center gap-2 text-sm">
+          ${StatusDot({ state: statusDot })}
+          <span class="text-neutral-700">${statusLabel}</span>
+          ${opencodeImage ? `<span class="text-xs text-neutral-400 truncate">${escapeHtml(opencodeImage)}</span>` : ""}
+        </div>
+        ${runtimeControls}
+      </div>
+      <form method="POST" action="/users/${slug}/agents/${agentSlug}/update-opencode" class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between pt-3 border-t border-border">
+        ${hiddenCsrf(csrfToken)}
+        <p class="text-xs text-neutral-400">Pull the latest OpenCode image and recreate this agent's container.</p>
+        ${Button({ variant: "secondary", size: "sm", children: "Update OpenCode" })}
+      </form>
+    `,
+  });
+
+  const header = `
+    <a href="/users/${slug}/agent" class="text-sm text-neutral-400 hover:text-neutral-600 transition-colors">&larr; Agents</a>
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-4 mb-6 gap-3">
+      <div class="min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <h1 class="text-xl font-display font-bold text-neutral-900 truncate">${escapeHtml(agent.name)}</h1>
+          <code class="text-xs text-neutral-400">${escapeHtml(agent.id)}</code>
+          ${isDefault ? Badge({ tone: "ok", children: "Default" }) : ""}
+        </div>
+        <p class="text-xs text-neutral-400 mt-2 max-w-2xl whitespace-pre-wrap">${escapeHtml(agent.roleSummary || agent.goal || "")}</p>
+      </div>
+      <div class="flex gap-2 flex-shrink-0 flex-wrap">
+        ${!isDefault ? `
+        <form method="POST" action="/users/${slug}/agents/${agentSlug}/default">
+          ${hiddenCsrf(csrfToken)}
+          ${Button({ variant: "secondary", size: "sm", children: "Set default" })}
+        </form>
+        ` : ""}
+        ${!isKellix ? `
+        <form method="POST" action="/users/${slug}/agents/${agentSlug}/delete" onsubmit="return confirm('Delete ${escapeHtml(agent.name)}?')">
+          ${hiddenCsrf(csrfToken)}
+          ${Button({ variant: "danger", size: "sm", children: "Delete" })}
+        </form>
+        ` : ""}
+      </div>
+    </div>
+  `;
+
+  return layout(`${userName} / ${agent.id}`, `
+    ${nav(csrfToken, "home")}
+    ${header}
     ${runtimeSection}
-    ${agentsSection}
+    ${profileSection}
     ${modelSection}
-    ${sessionsSection}
+    ${telegramSection}
+    ${sessionsBlock}
     ${logsSection}
-  `, options);
+  `, { width: "app" });
 }

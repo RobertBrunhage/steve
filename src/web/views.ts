@@ -11,9 +11,11 @@ export {
   renderUserBrowserPage,
   renderUserIntegrationsPage,
   renderUserAgentPage,
+  renderUserAgentDetailPage,
   renderUserHeader,
   type UserPageTab,
   type RenderUserOptions,
+  type RenderUserAgentDetailOptions,
 } from "./views/members.js";
 export { renderUserSecretNewForm, renderUserSecretEditForm } from "./views/integrations.js";
 export { renderSetup, renderSetupComplete, renderLogin, renderSetupLocked } from "./views/auth.js";

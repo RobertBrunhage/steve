@@ -1,6 +1,6 @@
 import * as p from "@clack/prompts";
-import { APP_NAME } from "./brand.js";
-import { config, getUserSkillsDir } from "./config.js";
+import { APP_NAME, APP_SLUG } from "./brand.js";
+import { config, getUserAgentSkillsDir } from "./config.js";
 import { syncBundledSkillsForUser, validateSkillDirectories } from "./skills.js";
 import { readUsersFromVault, uniqueUserSlugs } from "./users.js";
 import { Vault, readKeyfile } from "./vault/index.js";
@@ -48,8 +48,9 @@ async function main() {
   let skipped = 0;
 
   for (const userName of userNames) {
-    const result = syncBundledSkillsForUser(config.defaultSkillsDir, getUserSkillsDir(userName), { force });
-    validateSkillDirectories(getUserSkillsDir(userName));
+    const kellixSkillsDir = getUserAgentSkillsDir(userName, APP_SLUG);
+    const result = syncBundledSkillsForUser(config.defaultSkillsDir, kellixSkillsDir, { force });
+    validateSkillDirectories(kellixSkillsDir);
 
     installed += result.installed.length;
     updated += result.updated.length;

@@ -10,7 +10,7 @@ import type { BrowserTarget } from "../browser/types.js";
 import type { Vault } from "../vault/index.js";
 import type { Channel } from "../channels/index.js";
 import { config, getBaseUrl, getSystemTimezone } from "../config.js";
-import { loadUserJobs, removeUserJob, type Job, upsertUserJob } from "../scheduler.js";
+import { loadUserAgentJobs, loadUserJobs, removeUserJob, type Job, upsertUserJob } from "../scheduler.js";
 import { toUserSlug } from "../users.js";
 import { appendRunScriptAudit } from "./audit.js";
 import { buildScriptExecutionContext, redactSecrets } from "./script-security.js";
@@ -43,7 +43,9 @@ function isSkillScript(scriptPath: string, dataDir: string): boolean {
   if (resolved.startsWith(usersDir + "/")) {
     const relative = resolved.slice(usersDir.length + 1);
     const parts = relative.split("/");
-    return parts.length === 5 && parts[1] === "skills" && parts[3] === "scripts" && parts[4].endsWith(".sh");
+    const legacyUserSkill = parts.length === 5 && parts[1] === "skills" && parts[3] === "scripts" && parts[4].endsWith(".sh");
+    const agentSkill = parts.length === 7 && parts[1] === "agents" && parts[3] === "skills" && parts[5] === "scripts" && parts[6].endsWith(".sh");
+    return legacyUserSkill || agentSkill;
   }
 
   return false;
@@ -219,13 +221,14 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
 
   server.registerTool("manage_jobs", {
     description:
-      "Manage scheduled reminders and jobs for a user. Use 'list' to see jobs, 'add' to create, 'remove' to delete by id.",
+      "Manage scheduled reminders and jobs for the calling agent. Use 'list' to see jobs, 'add' to create, 'remove' to delete by id. Pass agentId so jobs scope to your agent.",
     inputSchema: {
       action: z.enum(["list", "add", "remove"]).describe("The action to perform"),
       userName: z.string().describe("The user name"),
+      agentId: z.string().optional().describe("Calling agent id. Required for agent-scoped routing."),
       job: z.object({
         id: z.string(),
-        agentId: z.string().optional().describe("Optional Kellix agent id. Defaults to the user's main kellix agent."),
+        agentId: z.string().optional().describe("Optional Kellix agent id. Defaults to top-level agentId or kellix."),
         name: z.string(),
         prompt: z.string(),
         cron: z.string().optional(),
@@ -234,21 +237,23 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
       }).optional().describe("Job to add (required for 'add' action)"),
       id: z.string().optional().describe("Job id to remove (required for 'remove' action)"),
     },
-  }, async ({ action, userName, job, id }) => {
+  }, async ({ action, userName, agentId, job, id }) => {
     const user = toUserSlug(userName);
+    const callerAgentId = agentId ? toUserSlug(agentId) : undefined;
 
     if (action === "list") {
-      const jobs = loadUserJobs(user);
+      const jobs = callerAgentId ? loadUserAgentJobs(user, callerAgentId) : loadUserJobs(user);
       return { content: [{ type: "text", text: JSON.stringify(jobs, null, 2) }] };
     }
 
     if (action === "add" && job) {
-      upsertUserJob(user, job);
+      const scopedAgentId = job.agentId || callerAgentId || APP_SLUG;
+      upsertUserJob(user, { ...job, agentId: scopedAgentId });
       return { content: [{ type: "text", text: `Job "${job.name}" added` }] };
     }
 
     if (action === "remove" && id) {
-      const removed = removeUserJob(user, id);
+      const removed = removeUserJob(user, id, callerAgentId);
       return { content: [{ type: "text", text: removed ? `Job "${id}" removed` : `Job "${id}" not found` }] };
     }
 
@@ -280,19 +285,31 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
       "Run a script from the project's scripts/ directory or a skill's scripts/ directory. Only pre-defined scripts can be executed. Credentials are injected automatically from the vault.",
     inputSchema: {
       script: z.string().describe("Absolute path to the script file"),
+      agentId: z.string().optional().describe("Optional Kellix agent id. Defaults to the user's default kellix agent."),
       args: z.array(z.string()).optional().describe("Arguments to pass to the script"),
     },
-  }, async ({ script, args }) => {
+  }, async ({ script, agentId, args }) => {
     const userName = args?.[0] ? toUserSlug(args[0]) : "";
+    const scriptAgentId = toUserSlug(agentId || APP_SLUG);
     const scriptArgs = userName && args?.length
       ? [userName, ...args.slice(1)]
       : (args || []);
 
     // Normalize script path: OpenCode sends paths relative to its container
-    // (e.g. "skills/withings/scripts/setup.sh" or "/data/skills/withings/scripts/setup.sh").
-    // User skills live under that user's workspace at users/<user>/skills on the host.
+    // (e.g. "skills/withings/scripts/setup.sh" or "/data/agents/kellix/skills/withings/scripts/setup.sh").
+    // Agent skills live under users/<user>/agents/<agent>/skills on the host.
     let scriptPath = script;
+    const agentSkillsMatch = script.match(/(?:^|\/)agents\/([^/]+)\/(skills\/.+)$/);
     const skillsMatch = script.match(/(?:^|\/)(skills\/.+)$/);
+    if (agentSkillsMatch) {
+      if (!userName) {
+        return {
+          content: [{ type: "text", text: "Error: Skill scripts require the current user name as the first argument." }],
+          isError: true,
+        };
+      }
+      scriptPath = join(dataDir, "users", userName, "agents", toUserSlug(agentSkillsMatch[1] || scriptAgentId), agentSkillsMatch[2] || "");
+    } else
     if (skillsMatch) {
       if (!userName) {
         return {
@@ -300,7 +317,7 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
           isError: true,
         };
       }
-      scriptPath = join(dataDir, "users", userName, skillsMatch[1]);
+      scriptPath = join(dataDir, "users", userName, "agents", scriptAgentId, skillsMatch[1]);
     }
 
     const resolved = resolve(scriptPath);

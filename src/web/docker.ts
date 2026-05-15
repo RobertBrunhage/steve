@@ -1,13 +1,18 @@
 import { spawnSync } from "node:child_process";
 import { getUserAgentComposePath } from "../agents.js";
 import { readEnv } from "../brand.js";
+import { toUserSlug } from "../users.js";
 
-function getUserContainerName(composeProject: string, name: string): string {
-  return `${composeProject}-opencode-${name}`;
+function slug(value: string): string {
+  return toUserSlug(value);
 }
 
-function getUserServiceName(name: string): string {
-  return `opencode-${name}`;
+function getServiceName(userName: string, agentId: string): string {
+  return `opencode-${slug(userName)}-${slug(agentId)}`;
+}
+
+function getContainerName(composeProject: string, userName: string, agentId: string): string {
+  return `${composeProject}-opencode-${slug(userName)}-${slug(agentId)}`;
 }
 
 function runDocker(args: string[], opts: { timeout?: number; input?: Buffer; encoding?: BufferEncoding } = {}) {
@@ -38,31 +43,31 @@ export function getComposeProject(): string {
   return readEnv("KELLIX_PROJECT", "STEVE_PROJECT") || "kellix";
 }
 
-export function startUserAgent(composeProject: string, name: string): void {
-  const result = runUserAgentCompose(composeProject, ["up", "-d", getUserServiceName(name)]);
+export function startUserAgent(composeProject: string, userName: string, agentId: string): void {
+  const result = runUserAgentCompose(composeProject, ["up", "-d", getServiceName(userName, agentId)]);
   ensureDockerSuccess(result, "Failed to start user agent");
 }
 
-export function stopUserAgent(composeProject: string, name: string): void {
-  const result = runDocker(["stop", getUserContainerName(composeProject, name)], { timeout: 15000, encoding: "utf-8" });
+export function stopUserAgent(composeProject: string, userName: string, agentId: string): void {
+  const result = runDocker(["stop", getContainerName(composeProject, userName, agentId)], { timeout: 15000, encoding: "utf-8" });
   ensureDockerSuccess(result, "Failed to stop user agent");
 }
 
-export function removeUserAgent(composeProject: string, name: string): void {
-  const result = runDocker(["rm", "-f", getUserContainerName(composeProject, name)], { timeout: 15000, encoding: "utf-8" });
+export function removeUserAgent(composeProject: string, userName: string, agentId: string): void {
+  const result = runDocker(["rm", "-f", getContainerName(composeProject, userName, agentId)], { timeout: 15000, encoding: "utf-8" });
   ensureDockerSuccess(result, "Failed to remove user agent");
 }
 
-export function restartUserAgent(composeProject: string, name: string): void {
-  const result = runUserAgentCompose(composeProject, ["restart", getUserServiceName(name)]);
+export function restartUserAgent(composeProject: string, userName: string, agentId: string): void {
+  const result = runUserAgentCompose(composeProject, ["restart", getServiceName(userName, agentId)]);
   ensureDockerSuccess(result, "Failed to restart user agent");
 }
 
-export function updateUserAgentImage(composeProject: string, name: string): void {
-  const result = runUserAgentCompose(composeProject, ["pull", getUserServiceName(name)]);
+export function updateUserAgentImage(composeProject: string, userName: string, agentId: string): void {
+  const result = runUserAgentCompose(composeProject, ["pull", getServiceName(userName, agentId)]);
   ensureDockerSuccess(result, "Failed to pull OpenCode image");
 
-  const recreate = runUserAgentCompose(composeProject, ["up", "-d", "--force-recreate", "--no-deps", getUserServiceName(name)]);
+  const recreate = runUserAgentCompose(composeProject, ["up", "-d", "--force-recreate", "--no-deps", getServiceName(userName, agentId)]);
   ensureDockerSuccess(recreate, "Failed to recreate user agent");
 }
 
@@ -71,8 +76,8 @@ export function reconcileUserAgents(composeProject: string): void {
   ensureDockerSuccess(result, "Failed to reconcile user agents");
 }
 
-export function getUserAgentLogs(composeProject: string, name: string): string {
-  const result = runDocker(["logs", getUserContainerName(composeProject, name), "--tail", "100"], { timeout: 5000, encoding: "utf-8" });
+export function getUserAgentLogs(composeProject: string, userName: string, agentId: string): string {
+  const result = runDocker(["logs", getContainerName(composeProject, userName, agentId), "--tail", "100"], { timeout: 5000, encoding: "utf-8" });
   if (result.error) throw result.error;
   return `${result.stdout || ""}${result.stderr || ""}`.trim();
 }

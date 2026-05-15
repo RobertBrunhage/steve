@@ -16,7 +16,7 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { strict as assert } from "node:assert";
-import { renderUserAgentPage } from "../src/web/views/members.js";
+import { renderUserAgentDetailPage } from "../src/web/views/members.js";
 
 const testDir = join(tmpdir(), `kellix-test-${Date.now()}`);
 process.env.KELLIX_DIR = testDir;
@@ -150,8 +150,8 @@ async function run() {
     });
   });
 
-  test("default skills copied into each user workspace", () => {
-    const skills = readdirSync(join(testDir, "users", "testuser", "skills"));
+  test("default skills copied into the default kellix agent workspace", () => {
+    const skills = readdirSync(join(testDir, "users", "testuser", "agents", "kellix", "skills"));
     assert.ok(skills.includes("personalization"), "personalization missing");
     assert.ok(skills.includes("training-coach"), "training-coach missing");
     assert.ok(skills.includes("nutrition-tracker"), "nutrition-tracker missing");
@@ -160,22 +160,23 @@ async function run() {
 
   test("user workspace created", () => {
     const userDir = join(testDir, "users", "testuser");
+    const agentDir = join(userDir, "agents", "kellix");
     assert.ok(existsSync(userDir));
-    assert.ok(existsSync(join(userDir, "SOUL.md")));
-    assert.ok(existsSync(join(userDir, "AGENTS.md")));
-    assert.ok(existsSync(join(userDir, "skills")));
+    assert.ok(existsSync(join(agentDir, "SOUL.md")));
+    assert.ok(existsSync(join(agentDir, "AGENTS.md")));
+    assert.ok(existsSync(join(agentDir, "skills")));
   });
 
   test("memory subdirectories created", () => {
-    const memDir = join(testDir, "users", "testuser", "memory");
+    const memDir = join(testDir, "users", "testuser", "agents", "kellix", "memory");
     assert.ok(existsSync(join(memDir, "daily")));
     assert.ok(existsSync(join(memDir, "training")));
     assert.ok(existsSync(join(memDir, "nutrition")));
     assert.ok(existsSync(join(memDir, "body-measurements")));
   });
 
-  test("opencode daily note plugin is copied into the user workspace", () => {
-    const pluginPath = join(testDir, "users", "testuser", ".opencode", "plugins", "memory-flush.ts");
+  test("opencode daily note plugin is copied into the kellix agent workspace", () => {
+    const pluginPath = join(testDir, "users", "testuser", "agents", "kellix", ".opencode", "plugins", "memory-flush.ts");
     assert.ok(existsSync(pluginPath));
     const plugin = readFileSync(pluginPath, "utf-8");
     assert.match(plugin, /session\.compacted/);
@@ -184,17 +185,17 @@ async function run() {
   });
 
   test("profile created with current user name", () => {
-    const profile = readFileSync(join(testDir, "users", "testuser", "memory", "profile.md"), "utf-8");
+    const profile = readFileSync(join(testDir, "users", "testuser", "agents", "kellix", "memory", "profile.md"), "utf-8");
     assert.match(profile, /## Personal Info/);
     assert.match(profile, /\*\*Name:\*\* testuser/);
     assert.match(profile, /## Preferences/);
   });
 
   test("opencode config generated", () => {
-    const userDir = join(testDir, "users", "testuser");
-    assert.ok(existsSync(join(userDir, "opencode.json")));
-    assert.ok(existsSync(join(userDir, ".opencode", "agents", "kellix.md")));
-    const config = JSON.parse(readFileSync(join(userDir, "opencode.json"), "utf-8"));
+    const agentDir = join(testDir, "users", "testuser", "agents", "kellix");
+    assert.ok(existsSync(join(agentDir, "opencode.json")));
+    assert.ok(existsSync(join(agentDir, ".opencode", "agents", "kellix.md")));
+    const config = JSON.parse(readFileSync(join(agentDir, "opencode.json"), "utf-8"));
     assert.equal(config.default_agent, "kellix");
     assert.equal(config.agent.build.disable, true);
     assert.equal(config.agent.plan.disable, true);
@@ -205,7 +206,7 @@ async function run() {
     assert.equal(readFileSync(join(testDir, "agents.compose.yml"), "utf-8"), "services: {}\n");
   });
 
-  const preservedOpencodePath = join(testDir, "users", "testuser", "opencode.json");
+  const preservedOpencodePath = join(testDir, "users", "testuser", "agents", "kellix", "opencode.json");
   const preservedOpencode = JSON.parse(readFileSync(preservedOpencodePath, "utf-8"));
   preservedOpencode.model = "openai/gpt-5.4";
   preservedOpencode.provider = {
@@ -230,15 +231,16 @@ async function run() {
     assert.equal(config.mcp.kellix.url, "http://kellix:3100/mcp");
   });
 
-  const enabledAgents = upsertUserAgentRecord(readUserAgentState(), "testuser", { enabled: true });
+  const enabledAgents = upsertUserAgentRecord(readUserAgentState(), "testuser", "kellix", { enabled: true });
   writeUserAgentState(enabledAgents);
   syncUserAgentsRuntime(result3.users);
 
   test("enabled agents are written to the generated compose file", () => {
     const compose = readFileSync(join(testDir, "agents.compose.yml"), "utf-8");
-    assert.match(compose, /opencode-testuser/);
+    assert.match(compose, /opencode-testuser-kellix/);
     assert.match(compose, /image: \$\{KELLIX_OPENCODE_IMAGE:-ghcr\.io\/robertbrunhage\/kellix-opencode:main\}/);
     assert.match(compose, /3457:3456/);
+    assert.match(compose, /subpath: users\/testuser\/agents\/kellix/);
   });
 
   test("browser state allocates stable per-user viewer ports", () => {
@@ -253,7 +255,7 @@ async function run() {
   });
 
   test("agent instructions pin the current user name", () => {
-    const agent = readFileSync(join(testDir, "users", "testuser", ".opencode", "agents", "kellix.md"), "utf-8");
+    const agent = readFileSync(join(testDir, "users", "testuser", "agents", "kellix", ".opencode", "agents", "kellix.md"), "utf-8");
     assert.match(agent, /Current Kellix user: testuser/);
     assert.match(agent, /always use this exact userName: testuser/);
     assert.match(agent, /permission: allow/);
@@ -275,13 +277,13 @@ async function run() {
     });
     setup2.setupUserWorkspace("testuser");
     setup2.generateRuntimeConfig(result3.users);
-    const agentPath = join(testDir, "users", "testuser", ".opencode", "agents", "sysadmin.md");
+    const agentPath = join(testDir, "users", "testuser", "agents", "sysadmin", ".opencode", "agents", "sysadmin.md");
     assert.ok(existsSync(agentPath));
     assert.ok(existsSync(join(testDir, "users", "testuser", "agents", "sysadmin", "memory")));
     assert.ok(existsSync(join(testDir, "users", "testuser", "agents", "sysadmin", "skills")));
     const agent = readFileSync(agentPath, "utf-8");
     assert.match(agent, /Current Kellix agent: sysadmin/);
-    assert.match(agent, /agents\/sysadmin\/memory/);
+    assert.match(agent, /Your home workspace is \/data/);
     assert.match(agent, /Watch the cluster/);
     assert.equal(readUserAgentsConfig("testuser").defaultAgentId, "kellix");
   });
@@ -702,7 +704,7 @@ async function run() {
   });
   const integrationsHtml = await integrationsPage.text();
 
-  writeFileSync(join(testDir, "users", "friend", "opencode.json"), JSON.stringify({
+  writeFileSync(join(testDir, "users", "friend", "agents", "kellix", "opencode.json"), JSON.stringify({
     $schema: "https://opencode.ai/config.json",
     default_agent: "kellix",
     model: "openai/gpt-5.4-mini",
@@ -720,6 +722,11 @@ async function run() {
   });
   const agentPageHtml = await agentPage.text();
 
+  const kellixAgentDetailPage = await app.request("/users/friend/agents/kellix", {
+    headers: { cookie: adminCookie || "" },
+  });
+  const kellixAgentDetailHtml = await kellixAgentDetailPage.text();
+
   test("web users: integrations live on their own subpage", () => {
     assert.equal(integrationsPage.status, 200);
     assert.match(integrationsHtml, /<h2 class="text-sm font-medium text-neutral-900">Integrations<\/h2>/);
@@ -727,13 +734,19 @@ async function run() {
     assert.match(integrationsHtml, /API keys and credentials Kellix uses to connect to third-party services for this member/);
   });
 
-  test("web users: agent page includes model controls", () => {
+  test("web users: agents overview lists agents and the create form", () => {
     assert.equal(agentPage.status, 200);
     assert.match(agentPageHtml, /Kellix agents/);
     assert.match(agentPageHtml, /action="\/users\/friend\/agents"/);
-    assert.match(agentPageHtml, /The model Kellix uses when responding to Telegram messages and running background tasks for this member/);
-    assert.match(agentPageHtml, /openai\/gpt-5\.4-mini/);
-    assert.match(agentPageHtml, /action="\/users\/friend\/agent\/model"/);
+    assert.match(agentPageHtml, /href="\/users\/friend\/agents\/kellix"/);
+  });
+
+  test("web users: per-agent detail page surfaces model + runtime controls", () => {
+    assert.equal(kellixAgentDetailPage.status, 200);
+    assert.match(kellixAgentDetailHtml, /AI model/);
+    assert.match(kellixAgentDetailHtml, /openai\/gpt-5\.4-mini/);
+    assert.match(kellixAgentDetailHtml, /action="\/users\/friend\/agents\/kellix\/model"/);
+    assert.match(kellixAgentDetailHtml, /action="\/users\/friend\/agents\/kellix\/update-opencode"/);
   });
 
   const createSpecialistAgent = await app.request("/users/friend/agents", {
@@ -746,14 +759,14 @@ async function run() {
       _csrf: adminCsrf || "",
       id: "marketing",
       name: "Marketing",
-      goal: "Watch campaign performance and suggest changes.",
     }),
   });
   test("web users: specialist agents can be created from the agent page", () => {
     assert.equal(createSpecialistAgent.status, 302);
     assert.equal(createSpecialistAgent.headers.get("location"), "/users/friend/agent");
-    assert.ok(existsSync(join(testDir, "users", "friend", ".opencode", "agents", "marketing.md")));
+    assert.ok(existsSync(join(testDir, "users", "friend", "agents", "marketing", ".opencode", "agents", "marketing.md")));
     assert.match(readFileSync(join(testDir, "users", "friend", "agents.json"), "utf-8"), /marketing/);
+    assert.equal(readUserAgentsConfig("friend").agents.find((agent) => agent.id === "marketing")?.setupStatus, "needs_setup");
   });
 
   const saveAgentTelegram = await app.request("/users/friend/agents/marketing/telegram", {
@@ -771,7 +784,7 @@ async function run() {
 
   test("web users: specialist agents can have their own Telegram bot", () => {
     assert.equal(saveAgentTelegram.status, 302);
-    assert.equal(saveAgentTelegram.headers.get("location"), "/users/friend/agent");
+    assert.equal(saveAgentTelegram.headers.get("location"), "/users/friend/agents/marketing");
     const agents = readUserAgentsConfig("friend");
     const marketing = agents.agents.find((agent) => agent.id === "marketing");
     assert.equal(marketing?.channels?.telegram?.chatId, "456789");
@@ -789,7 +802,8 @@ async function run() {
     body: new URLSearchParams({
       _csrf: adminCsrf || "",
       name: "Growth",
-      goal: "Watch campaigns and recommend growth changes.",
+      roleSummary: "Watch campaigns and recommend growth changes.",
+      instructions: "Monitor campaign performance and suggest concise experiments.",
     }),
   });
 
@@ -797,7 +811,9 @@ async function run() {
     assert.equal(editSpecialistAgent.status, 302);
     const growth = readUserAgentsConfig("friend").agents.find((agent) => agent.id === "marketing");
     assert.equal(growth?.name, "Growth");
-    assert.equal(growth?.goal, "Watch campaigns and recommend growth changes.");
+    assert.equal(growth?.setupStatus, "configured");
+    assert.equal(growth?.roleSummary, "Watch campaigns and recommend growth changes.");
+    assert.match(readFileSync(join(testDir, "users", "friend", "agents", "marketing", "AGENTS.md"), "utf-8"), /Monitor campaign performance/);
   });
 
   const setDefaultAgent = await app.request("/users/friend/agents/marketing/default", {
@@ -852,35 +868,55 @@ async function run() {
     assert.equal(readUserAgentsConfig("friend").defaultAgentId, "kellix");
   });
 
-  test("web users: agent page keeps the configured model selectable when the runtime omits it", () => {
-    const hiddenModelHtml = renderUserAgentPage("friend", "running", "http://localhost:3456", "csrf-token", {
-      currentModel: "openai/gpt-5.4",
-      modelProviders: [
-        {
-          id: "openai",
-          name: "OpenAI",
-          models: [{ id: "gpt-5.4-mini", name: "gpt-5.4-mini" }],
-        },
-      ],
+  test("web users: agent detail page keeps the configured model selectable when the runtime omits it", () => {
+    const hiddenModelHtml = renderUserAgentDetailPage({
+      userName: "friend",
+      agent: { id: "kellix", name: "Kellix", goal: "" },
+      defaultAgentId: "kellix",
+      csrfToken: "csrf-token",
+      runtime: {
+        status: "running",
+        agentEnabled: true,
+        ocUrl: "http://localhost:3456",
+        currentModel: "openai/gpt-5.4",
+        thinkingLevel: "default",
+        modelProviders: [
+          {
+            id: "openai",
+            name: "OpenAI",
+            models: [{ id: "gpt-5.4-mini", name: "gpt-5.4-mini", variants: [] }],
+          },
+        ],
+      },
     });
 
     assert.match(hiddenModelHtml, /"id":"openai\/gpt-5\.4"/);
     assert.match(hiddenModelHtml, /"initialModelId":"openai\/gpt-5\.4"/);
   });
 
-  test("web users: agent page initializes the current model after Alpine renders options", () => {
-    const initializedModelHtml = renderUserAgentPage("friend", "running", "http://localhost:3456", "csrf-token", {
-      currentModel: "openai/gpt-5.4",
-      modelProviders: [
-        {
-          id: "openai",
-          name: "OpenAI",
-          models: [
-            { id: "codex-mini-latest", name: "Codex Mini" },
-            { id: "gpt-5.4", name: "GPT-5.4" },
-          ],
-        },
-      ],
+  test("web users: agent detail page initializes the current model after Alpine renders options", () => {
+    const initializedModelHtml = renderUserAgentDetailPage({
+      userName: "friend",
+      agent: { id: "kellix", name: "Kellix", goal: "" },
+      defaultAgentId: "kellix",
+      csrfToken: "csrf-token",
+      runtime: {
+        status: "running",
+        agentEnabled: true,
+        ocUrl: "http://localhost:3456",
+        currentModel: "openai/gpt-5.4",
+        thinkingLevel: "default",
+        modelProviders: [
+          {
+            id: "openai",
+            name: "OpenAI",
+            models: [
+              { id: "codex-mini-latest", name: "Codex Mini", variants: [] },
+              { id: "gpt-5.4", name: "GPT-5.4", variants: [] },
+            ],
+          },
+        ],
+      },
     });
 
     assert.match(initializedModelHtml, /"initialModelId":"openai\/gpt-5\.4"/);
@@ -899,7 +935,7 @@ async function run() {
       model_id: "openai/gpt-5.4",
     }),
   });
-  const savedAgentConfig = JSON.parse(readFileSync(join(testDir, "users", "friend", "opencode.json"), "utf-8"));
+  const savedAgentConfig = JSON.parse(readFileSync(join(testDir, "users", "friend", "agents", "kellix", "opencode.json"), "utf-8"));
 
   test("web users: agent model save preserves fully qualified model ids", () => {
     assert.equal(saveAgentModel.status, 302);

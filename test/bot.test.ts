@@ -79,7 +79,7 @@ async function main() {
     assert.ok(files.every((file) => file.startsWith("/data/tmp/photo-") && file.endsWith(".jpg")));
     assert.match(calls[0]?.userMessage ?? "", /^Snack is 2 out of 6 of these\n\nAttached file paths:\n- \/data\/tmp\/photo-.*\.jpg\n- \/data\/tmp\/photo-.*\.jpg$/);
     assert.deepEqual(replies, []);
-    assert.deepEqual(readdirSync(join(tempDir, "users", "robert", "tmp")), []);
+    assert.deepEqual(readdirSync(join(tempDir, "users", "robert", "agents", "kellix", "tmp")), []);
 
     console.log("Bot photo grouping tests passed");
   } finally {

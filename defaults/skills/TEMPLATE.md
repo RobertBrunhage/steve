@@ -103,12 +103,23 @@ The app secret key format is `users/{userName}/{skill-name}/app` with a JSON obj
 
 Example: vault key `users/robert/weather/app` with value `{"api_key": "abc123"}` becomes `KELLIX_CRED_API_KEY=abc123` in the script's environment.
 
+### Slug consistency — CRITICAL
+
+The skill folder name, the manifest vault key, and the `integration` argument to `get_secret_url` are the SAME slug. Pick one and reuse it exactly. Do NOT list multiple speculative slugs in your manifest hoping one matches — they won't, because the user will pick the slug you tell them to use.
+
+For a skill called `weather`:
+- folder: `skills/weather/`
+- manifest: `key: users/{user}/weather/app`
+- call: `get_secret_url(userName=<user>, integration=weather)`
+- vault entry the user creates: `users/<user>/weather/app` with the fields declared in your manifest
+
 ### Setup flow
 
 When credentials are missing:
-1. Call `get_secret_url` with the current `userName` to get the user's integrations page
-2. Tell the user to open it and add their credentials on their user page under the `{skill-name}` integration
-3. Once confirmed, run the skill's scripts normally (credentials are injected automatically)
+1. Create the skill folder, `SKILL.md` (with `scripts.<name>.secrets` declaring `key` and exact `fields`), and the script — BEFORE asking the user.
+2. Call `get_secret_url` with the current `userName` AND the matching `integration` slug. The user lands on a pre-filled form.
+3. Tell the user the exact field name(s) to use (matching your `fields` list). Don't make them guess.
+4. Once they confirm saved, retry the script. Credentials are injected automatically as env vars.
 
 ### In scripts
 

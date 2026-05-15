@@ -1,4 +1,6 @@
 import type { Hono } from "hono";
+import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { getHealth } from "../health.js";
 import { config, getKellixVersion, getSystemTimezone, getTelegramApiBase, isValidTimezone, refreshRuntimeConfigFromVault, writeSystemSettings } from "../config.js";
 import { getTelegramBotToken, listUserAppSecrets, setTelegramBotToken } from "../secrets.js";
@@ -83,6 +85,29 @@ export function registerSecretsRoutes(app: Hono, deps: WebRouteDeps) {
     setTelegramBotToken(vault, nextToken);
     refreshRuntimeConfigFromVault(vault);
     setFlash(c, "Telegram bot token saved");
+    return c.redirect("/settings");
+  });
+
+  app.post("/settings/restart", async (c) => {
+    const result = await deps.requireAdminForm(c);
+    if (result instanceof Response) return result;
+
+    // Schedule the restart after the response is sent so the redirect lands in
+    // the browser before docker tears the container down.
+    setTimeout(() => {
+      try {
+        const hostname = (process.env.HOSTNAME || readFileSync("/etc/hostname", "utf-8").trim()).trim();
+        if (!hostname) return;
+        const child = spawn("docker", ["restart", hostname], { detached: true, stdio: "ignore" });
+        child.unref();
+      } catch (err) {
+        console.error("Failed to restart kellix:", err instanceof Error ? err.message : err);
+      }
+    }, 500);
+
+    // Marker cookie so the settings page polls itself back online after reload.
+    c.header("Set-Cookie", "kellix_restarting=1; Path=/; Max-Age=30");
+    setFlash(c, "Restarting Kellix… page will reload in a few seconds");
     return c.redirect("/settings");
   });
 

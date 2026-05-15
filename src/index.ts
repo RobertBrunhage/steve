@@ -163,8 +163,8 @@ async function main() {
   ({ botToken, users } = await waitForConfiguration(vault, botToken, users));
   applyRuntimeConfig(botToken, users);
 
-  const enabledAgents = listEnabledUserAgents(readUserAgentState());
-  if (enabledAgents.length > 0) {
+  const enabledAgentEntries = listEnabledUserAgents(readUserAgentState());
+  if (enabledAgentEntries.length > 0) {
     try {
       reconcileUserAgents(getComposeProject());
     } catch (error) {

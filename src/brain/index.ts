@@ -1,9 +1,9 @@
 import * as p from "@clack/prompts";
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/client";
 import { APP_NAME, APP_SLUG, LEGACY_APP_NAME } from "../brand.js";
-import { getRuntime, getTelegramApiBase } from "../config.js";
+import { getDefaultChannel } from "../channels/index.js";
 import { resolveUserAgentId } from "../user-agents.js";
-import { getTelegramChatId, toUserSlug } from "../users.js";
+import { toUserSlug } from "../users.js";
 
 type PromptPart =
   | { type: "text"; text: string }
@@ -22,22 +22,14 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Direct Telegram API call as fallback when opencode fails entirely
-async function sendFallback(userName: string, message: string) {
-  const rt = getRuntime();
-  const chatId = getTelegramChatId(rt.users, userName);
-
-  if (!chatId || !rt.botToken) return;
-
+// Fallback "something went wrong" message when OpenCode fails entirely.
+// Routes through the registered channel so an agent-specific bot/chat is used
+// when configured, instead of always falling back to the main kellix bot.
+async function sendFallback(userName: string, message: string, agentId?: string) {
+  const channel = getDefaultChannel();
+  if (!channel) return;
   try {
-    await fetch(
-      `${getTelegramApiBase()}/bot${rt.botToken}/sendMessage`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text: message }),
-      },
-    );
+    await channel.sendMessage(userName, message, agentId ? { agentId } : undefined);
   } catch (err) {
     p.log.error(`Fallback send failed: ${err instanceof Error ? err.message : err}`);
   }
@@ -55,30 +47,30 @@ export class Brain {
     agentId?: string,
   ): Promise<void> {
     const resolvedAgentId = resolveUserAgentId(userName, agentId);
-    const queueKey = `${toUserSlug(userName)}:${resolvedAgentId}`;
+    const queueKey = this.getClientKey(userName, resolvedAgentId);
     const prev = this.queues.get(queueKey) ?? Promise.resolve();
     const current = prev.then(() => this.process(userMessage, userName, files, resolvedAgentId));
     this.queues.set(queueKey, current);
     await current;
   }
 
-  private getClient(userName: string): OpencodeClient {
-    const name = toUserSlug(userName);
-    if (!this.clients.has(name)) {
-      this.clients.set(name, createOpencodeClient({
-        baseUrl: `http://opencode-${name}:3456`,
+  private getClientKey(userName: string, agentId: string): string {
+    return `${toUserSlug(userName)}:${toUserSlug(agentId)}`;
+  }
+
+  private getClient(userName: string, agentId: string): OpencodeClient {
+    const key = this.getClientKey(userName, agentId);
+    if (!this.clients.has(key)) {
+      this.clients.set(key, createOpencodeClient({
+        baseUrl: `http://opencode-${toUserSlug(userName)}-${toUserSlug(agentId)}:3456`,
         directory: "/data",
       }));
     }
-    return this.clients.get(name)!;
+    return this.clients.get(key)!;
   }
 
   private getSessionTitle(userName: string, agentId: string): string {
     return agentId === APP_SLUG ? `${APP_NAME} - ${userName}` : `${APP_NAME} ${agentId} - ${userName}`;
-  }
-
-  private getSessionKey(userName: string, agentId: string): string {
-    return `${toUserSlug(userName)}:${agentId}`;
   }
 
   private async findExistingSessionId(oc: OpencodeClient, userName: string, agentId: string): Promise<string | null> {
@@ -104,14 +96,14 @@ export class Brain {
   }
 
   private async getOrCreateSessionId(oc: OpencodeClient, userName: string, agentId: string): Promise<string> {
-    const key = this.getSessionKey(userName, agentId);
+    const key = this.getClientKey(userName, agentId);
     const cached = this.sessions.get(key);
     if (cached) return cached;
 
     const existing = await this.findExistingSessionId(oc, userName, agentId);
     if (existing) {
       this.sessions.set(key, existing);
-      p.log.info(`Resumed session for ${userName}`);
+      p.log.info(`Resumed session for ${userName}/${agentId}`);
       return existing;
     }
 
@@ -121,7 +113,7 @@ export class Brain {
   }
 
   private async getPrimarySessionId(oc: OpencodeClient, userName: string, agentId: string): Promise<string | null> {
-    const key = this.getSessionKey(userName, agentId);
+    const key = this.getClientKey(userName, agentId);
     const cached = this.sessions.get(key);
     if (cached) return cached;
     const existing = await this.findExistingSessionId(oc, userName, agentId);
@@ -166,7 +158,7 @@ export class Brain {
   }
 
   private async promptWithSessionRetry(oc: OpencodeClient, userName: string, parts: PromptPart[], agentId: string) {
-    const key = this.getSessionKey(userName, agentId);
+    const key = this.getClientKey(userName, agentId);
 
     for (let attempt = 0; attempt < 2; attempt++) {
       const sessionId = attempt === 0
@@ -183,7 +175,7 @@ export class Brain {
       }
 
       if (attempt === 0 && (res.response?.status === 404 || res.response?.status === 400)) {
-        p.log.warn(`Session expired for ${userName}, creating new one...`);
+        p.log.warn(`Session expired for ${userName}/${agentId}, creating new one...`);
         this.sessions.delete(key);
         continue;
       }
@@ -203,16 +195,17 @@ export class Brain {
     try {
       p.log.step(`${userName}/${agentId} → thinking...`);
 
-      const oc = this.getClient(userName);
+      const oc = this.getClient(userName, agentId);
       const parts = this.buildPromptParts(userMessage, files);
       await this.promptWithSessionRetry(oc, userName, parts, agentId);
 
       p.log.success(`${userName}/${agentId} → replied`);
     } catch (error) {
-      p.log.error(`${userName} → failed: ${error instanceof Error ? error.message : error}`);
+      p.log.error(`${userName}/${agentId} → failed: ${error instanceof Error ? error.message : error}`);
       await sendFallback(
         userName,
         "Something went wrong on my end. Give me a moment and try again.",
+        agentId,
       );
     }
   }
@@ -225,7 +218,7 @@ export class Brain {
   ): Promise<void> {
     const resolvedAgentId = resolveUserAgentId(userName, agentId);
     try {
-      const oc = this.getClient(userName);
+      const oc = this.getClient(userName, resolvedAgentId);
       const sessionId = await this.createSessionId(oc, `${userName} (isolated)`, resolvedAgentId);
       const res = await this.promptSession(oc, sessionId, this.buildPromptParts(userMessage), resolvedAgentId);
 
@@ -240,12 +233,12 @@ export class Brain {
 
   async compactPrimarySession(userName: string, agentId?: string): Promise<boolean> {
     const resolvedAgentId = resolveUserAgentId(userName, agentId);
-    const key = this.getSessionKey(userName, resolvedAgentId);
-    const oc = this.getClient(userName);
+    const key = this.getClientKey(userName, resolvedAgentId);
+    const oc = this.getClient(userName, resolvedAgentId);
     const model = await this.getConfiguredModel(oc);
 
     if (!model) {
-      throw new Error(`No configured model for ${userName}`);
+      throw new Error(`No configured model for ${userName}/${resolvedAgentId}`);
     }
 
     for (let attempt = 0; attempt < 2; attempt++) {

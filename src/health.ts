@@ -1,4 +1,5 @@
 import { readUserAgentState } from "./agents.js";
+import { APP_SLUG } from "./brand.js";
 import { getRuntime } from "./config.js";
 import type { Vault } from "./vault/index.js";
 import { listVisibleVaultKeys } from "./vault/visible.js";
@@ -24,8 +25,8 @@ export function setReminderCount(count: number) { reminderCount = count; }
 export function setTelegramConnected(connected: boolean) { telegramConnected = connected; }
 export function setVault(v: Vault) { vault = v; }
 
-async function checkOpenCode(userName: string): Promise<{ status: "ok" | "error"; message?: string }> {
-  const url = `http://opencode-${toUserSlug(userName)}:3456`;
+async function checkOpenCode(userName: string, agentId: string): Promise<{ status: "ok" | "error"; message?: string }> {
+  const url = `http://opencode-${toUserSlug(userName)}-${toUserSlug(agentId)}:3456`;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
     return res.status < 500 ? { status: "ok" } : { status: "error", message: `HTTP ${res.status}` };
@@ -41,11 +42,12 @@ export async function getHealth(): Promise<HealthStatus> {
     const agentState = readUserAgentState();
     const userNames = uniqueUserSlugs(rt.users);
     await Promise.all(userNames.map(async (name) => {
-      if (!agentState[name]?.enabled) {
+      const kellix = agentState[name]?.[APP_SLUG];
+      if (!kellix?.enabled) {
         opencode[name] = { status: "paused" };
         return;
       }
-      opencode[name] = await checkOpenCode(name);
+      opencode[name] = await checkOpenCode(name, APP_SLUG);
     }));
   } catch {
     opencode["default"] = { status: "error", message: "runtime not initialized" };

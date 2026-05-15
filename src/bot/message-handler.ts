@@ -4,7 +4,8 @@ import { join } from "node:path";
 import type { Bot, Context } from "grammy";
 import { appendUserActivity } from "../activity.js";
 import type { Brain } from "../brain/index.js";
-import { config, getRuntime, getTelegramApiBase, getUserDir } from "../config.js";
+import { config, getRuntime, getTelegramApiBase, getUserAgentDir } from "../config.js";
+import { resolveUserAgentId } from "../user-agents.js";
 import { getUserName } from "./commands.js";
 
 type DownloadedPhoto = { hostPath: string; containerPath: string };
@@ -21,8 +22,8 @@ type PendingPhotoGroup = {
 const PHOTO_GROUP_SETTLE_MS = 750;
 const pendingPhotoGroups = new Map<string, PendingPhotoGroup>();
 
-/** Download photo to user's workspace tmp dir. Returns {hostPath, containerPath}. */
-async function downloadPhoto(ctx: Context, userName: string, botToken?: string): Promise<DownloadedPhoto | null> {
+/** Download photo to the target agent's workspace tmp dir. Returns {hostPath, containerPath}. */
+async function downloadPhoto(ctx: Context, userName: string, agentId: string, botToken?: string): Promise<DownloadedPhoto | null> {
   const photo = ctx.message?.photo;
   if (!photo || photo.length === 0) return null;
 
@@ -34,17 +35,17 @@ async function downloadPhoto(ctx: Context, userName: string, botToken?: string):
   const response = await fetch(url);
   if (!response.ok) return null;
 
-  // Save to user's workspace so OpenCode container can access it
-  const userTmpDir = join(getUserDir(userName), "tmp");
-  await mkdir(userTmpDir, { recursive: true });
+  // Save into the agent's workspace tmp dir. The OpenCode container for this
+  // agent mounts that dir as /data, so /data/tmp/<file> resolves correctly.
+  const agentTmpDir = join(getUserAgentDir(userName, agentId), "tmp");
+  await mkdir(agentTmpDir, { recursive: true });
   const ext = file.file_path.split(".").pop() || "jpg";
   const filename = `photo-${Date.now()}-${randomUUID()}.${ext}`;
-  const hostPath = join(userTmpDir, filename);
+  const hostPath = join(agentTmpDir, filename);
 
   const buffer = Buffer.from(await response.arrayBuffer());
   await writeFile(hostPath, buffer);
 
-  // OpenCode sees the user workspace at /data, so the path inside the container is /data/tmp/filename
   const containerPath = `/data/tmp/${filename}`;
 
   return { hostPath, containerPath };
@@ -122,7 +123,7 @@ async function flushPhotoGroup(key: string, brain: Brain): Promise<void> {
   await processPhotoMessage(group.ctx, brain, group.userName, group.route, group.downloads, group.caption);
 }
 
-function queuePhotoGroup(ctx: Context, brain: Brain, userName: string, route?: BotRoute): void {
+function queuePhotoGroup(ctx: Context, brain: Brain, userName: string, agentId: string, route?: BotRoute): void {
   const key = getPhotoGroupKey(ctx);
   if (!key) return;
 
@@ -131,7 +132,7 @@ function queuePhotoGroup(ctx: Context, brain: Brain, userName: string, route?: B
   if (existing) {
     existing.ctx = ctx;
     existing.caption = existing.caption || caption;
-    existing.downloads.push(downloadPhoto(ctx, userName, route?.botToken));
+    existing.downloads.push(downloadPhoto(ctx, userName, agentId, route?.botToken));
     clearTimeout(existing.timer);
     existing.timer = setTimeout(() => {
       void flushPhotoGroup(key, brain);
@@ -144,7 +145,7 @@ function queuePhotoGroup(ctx: Context, brain: Brain, userName: string, route?: B
     userName,
     route,
     caption,
-    downloads: [downloadPhoto(ctx, userName, route?.botToken)],
+    downloads: [downloadPhoto(ctx, userName, agentId, route?.botToken)],
     timer: setTimeout(() => {
       void flushPhotoGroup(key, brain);
     }, PHOTO_GROUP_SETTLE_MS),
@@ -199,10 +200,11 @@ export function registerMessageHandler(
 
   bot.on("message:photo", async (ctx) => {
     const userName = route?.userName || getUserName(ctx.from?.id ?? 0);
+    const agentId = resolveUserAgentId(userName, route?.agentId);
     const scopedRoute = route ? { ...route, userName } : undefined;
 
     if (ctx.message.media_group_id) {
-      queuePhotoGroup(ctx, brain, userName, scopedRoute);
+      queuePhotoGroup(ctx, brain, userName, agentId, scopedRoute);
       return;
     }
 
@@ -211,7 +213,7 @@ export function registerMessageHandler(
       brain,
       userName,
       scopedRoute,
-      [downloadPhoto(ctx, userName, route?.botToken)],
+      [downloadPhoto(ctx, userName, agentId, route?.botToken)],
       normalizeCaption(ctx.message.caption),
     );
   });

@@ -1,10 +1,11 @@
-import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { CronJob } from "cron";
 import * as p from "@clack/prompts";
 import { appendUserActivity } from "./activity.js";
+import { APP_SLUG } from "./brand.js";
 import type { Brain } from "./brain/index.js";
-import { config, getSystemTimezone } from "./config.js";
+import { config, getSystemTimezone, getUserAgentDir } from "./config.js";
 import { setReminderCount } from "./health.js";
 import { toUserSlug } from "./users.js";
 
@@ -23,8 +24,9 @@ export interface Job {
   lastDurationMs?: number;
 }
 
-interface UserJobs {
+interface UserAgentJobs {
   userName: string;
+  agentId: string;
   jobs: Job[];
 }
 
@@ -49,26 +51,90 @@ const firedOneOffs: Set<string> = new Set();
 const MAX_RETRIES = 3;
 const DAILY_COMPACTION_CRON = "0 23 * * *";
 
-/** Get the jobs.json path for a specific user */
-export function getUserJobsPath(userName: string): string {
+function agentOrDefault(agentId?: string): string {
+  return agentId ? toUserSlug(agentId) : APP_SLUG;
+}
+
+/** Path to a specific (user, agent)'s jobs.json */
+export function getAgentJobsPath(userName: string, agentId: string): string {
+  return join(getUserAgentDir(userName, agentId), "jobs", "jobs.json");
+}
+
+/** Legacy path (user-root jobs.json). Used only for one-shot migration. */
+function getLegacyUserJobsPath(userName: string): string {
   return join(config.usersDir, toUserSlug(userName), "jobs.json");
 }
 
-/** Load jobs for a single user */
-export function loadUserJobs(userName: string): Job[] {
-  const path = getUserJobsPath(userName);
+function readJobsFile(path: string): Job[] {
   try {
-    if (existsSync(path)) {
-      const data = JSON.parse(readFileSync(path, "utf-8"));
-      return data.jobs || [];
-    }
-  } catch {}
-  return [];
+    if (!existsSync(path)) return [];
+    const data = JSON.parse(readFileSync(path, "utf-8"));
+    return Array.isArray(data?.jobs) ? data.jobs as Job[] : [];
+  } catch {
+    return [];
+  }
 }
 
-/** Save jobs for a single user */
-export function saveUserJobs(userName: string, jobs: Job[]) {
-  writeFileSync(getUserJobsPath(userName), JSON.stringify({ jobs }, null, 2), "utf-8");
+function writeJobsFile(path: string, jobs: Job[]): void {
+  mkdirSync(join(path, ".."), { recursive: true });
+  writeFileSync(path, `${JSON.stringify({ jobs }, null, 2)}\n`, "utf-8");
+}
+
+/** List agent dirs for a user that exist on disk. */
+function listAgentDirsForUser(userName: string): string[] {
+  const user = toUserSlug(userName);
+  const dir = join(config.usersDir, user, "agents");
+  if (!existsSync(dir)) return [];
+  try {
+    return readdirSync(dir).filter((name) => !name.startsWith("."));
+  } catch {
+    return [];
+  }
+}
+
+/** Load jobs for a specific (user, agent). */
+export function loadUserAgentJobs(userName: string, agentId: string): Job[] {
+  return readJobsFile(getAgentJobsPath(userName, agentOrDefault(agentId)));
+}
+
+/** Save jobs for a specific (user, agent). */
+export function saveUserAgentJobs(userName: string, agentId: string, jobs: Job[]): void {
+  writeJobsFile(getAgentJobsPath(userName, agentOrDefault(agentId)), jobs);
+}
+
+/** Aggregate all jobs across every agent for a user. */
+export function loadUserJobs(userName: string): Job[] {
+  const user = toUserSlug(userName);
+  const out: Job[] = [];
+  for (const agentId of listAgentDirsForUser(user)) {
+    const jobs = readJobsFile(getAgentJobsPath(user, agentId));
+    for (const job of jobs) {
+      out.push({ ...job, agentId: job.agentId || agentId });
+    }
+  }
+  return out;
+}
+
+/** Replace a user's full jobs set; splits by agentId across per-agent files. */
+export function saveUserJobs(userName: string, jobs: Job[]): void {
+  const user = toUserSlug(userName);
+  const groups: Record<string, Job[]> = {};
+  for (const job of jobs) {
+    const aid = agentOrDefault(job.agentId);
+    (groups[aid] = groups[aid] || []).push(job);
+  }
+
+  // Write the agents that have jobs.
+  for (const [agentId, agentJobs] of Object.entries(groups)) {
+    writeJobsFile(getAgentJobsPath(user, agentId), agentJobs);
+  }
+
+  // Clear any agent dirs that previously had jobs but are now absent from the set.
+  for (const agentId of listAgentDirsForUser(user)) {
+    if (groups[agentId]) continue;
+    const path = getAgentJobsPath(user, agentId);
+    if (existsSync(path)) writeJobsFile(path, []);
+  }
 }
 
 function mergeJobMetadata(existing: Job | undefined, next: Job): Job {
@@ -84,53 +150,104 @@ function mergeJobMetadata(existing: Job | undefined, next: Job): Job {
 
 export function upsertUserJob(userName: string, job: Job): void {
   const user = toUserSlug(userName);
-  const jobs = loadUserJobs(user);
-  const jobAgentId = job.agentId || "kellix";
-  const existing = jobs.find((entry) => entry.id === job.id && (entry.agentId || "kellix") === jobAgentId);
-  const nextJobs = jobs.filter((entry) => entry.id !== job.id || (entry.agentId || "kellix") !== jobAgentId);
-  nextJobs.push(mergeJobMetadata(existing, job));
-  saveUserJobs(user, nextJobs);
+  const agentId = agentOrDefault(job.agentId);
+  const path = getAgentJobsPath(user, agentId);
+  const jobs = readJobsFile(path);
+  const existing = jobs.find((entry) => entry.id === job.id);
+  const filtered = jobs.filter((entry) => entry.id !== job.id);
+  filtered.push(mergeJobMetadata(existing, { ...job, agentId }));
+  writeJobsFile(path, filtered);
 }
 
 export function removeUserJob(userName: string, id: string, agentId?: string): boolean {
   const user = toUserSlug(userName);
-  const jobs = loadUserJobs(user);
-  const filtered = jobs.filter((entry) => entry.id !== id || (agentId && (entry.agentId || "kellix") !== agentId));
-  saveUserJobs(user, filtered);
-  return filtered.length < jobs.length;
+  const targets = agentId ? [agentOrDefault(agentId)] : listAgentDirsForUser(user);
+  let removed = false;
+  for (const aid of targets) {
+    const path = getAgentJobsPath(user, aid);
+    const jobs = readJobsFile(path);
+    const next = jobs.filter((entry) => entry.id !== id);
+    if (next.length !== jobs.length) {
+      writeJobsFile(path, next);
+      removed = true;
+    }
+  }
+  return removed;
 }
 
 export function setUserJobDisabled(userName: string, id: string, disabled: boolean, agentId?: string): boolean {
   const user = toUserSlug(userName);
-  const jobs = loadUserJobs(user);
+  const targets = agentId ? [agentOrDefault(agentId)] : listAgentDirsForUser(user);
   let updated = false;
-  const nextJobs = jobs.map((job) => {
-    if (job.id !== id || (agentId && (job.agentId || "kellix") !== agentId)) return job;
-    updated = true;
-    return { ...job, disabled };
-  });
-  if (updated) saveUserJobs(user, nextJobs);
+  for (const aid of targets) {
+    const path = getAgentJobsPath(user, aid);
+    const jobs = readJobsFile(path);
+    let touched = false;
+    const next = jobs.map((entry) => {
+      if (entry.id !== id) return entry;
+      touched = true;
+      return { ...entry, disabled };
+    });
+    if (touched) {
+      writeJobsFile(path, next);
+      updated = true;
+    }
+  }
   return updated;
 }
 
-/** Load jobs across all users */
-export function loadAllJobs(): UserJobs[] {
-  const result: UserJobs[] = [];
+/**
+ * One-shot migration of a legacy user-root jobs.json into per-agent files.
+ * Idempotent: only runs when the legacy file exists.
+ */
+export function migrateLegacyUserJobs(userName: string): void {
+  const user = toUserSlug(userName);
+  const legacy = getLegacyUserJobsPath(user);
+  if (!existsSync(legacy)) return;
+  const jobs = readJobsFile(legacy);
+  const groups: Record<string, Job[]> = {};
+  for (const job of jobs) {
+    const aid = agentOrDefault(job.agentId);
+    (groups[aid] = groups[aid] || []).push({ ...job, agentId: aid });
+  }
+  for (const [agentId, group] of Object.entries(groups)) {
+    const dest = getAgentJobsPath(user, agentId);
+    if (existsSync(dest)) continue;
+    writeJobsFile(dest, group);
+  }
+  try {
+    writeFileSync(legacy, `${JSON.stringify({ jobs: [], migrated: new Date().toISOString() }, null, 2)}\n`, "utf-8");
+  } catch {}
+}
+
+/** Load jobs across all (user, agent) pairs */
+export function loadAllJobs(): UserAgentJobs[] {
+  const result: UserAgentJobs[] = [];
   try {
     for (const userDirName of readdirSync(config.usersDir)) {
       if (userDirName.startsWith(".")) continue;
-      const jobs = loadUserJobs(userDirName);
-      if (jobs.length > 0) {
-        result.push({ userName: userDirName, jobs });
+      for (const agentId of listAgentDirsForUser(userDirName)) {
+        const jobs = readJobsFile(getAgentJobsPath(userDirName, agentId));
+        if (jobs.length > 0) {
+          result.push({ userName: userDirName, agentId, jobs: jobs.map((job) => ({ ...job, agentId: job.agentId || agentId })) });
+        }
       }
     }
   } catch {}
   return result;
 }
 
-/** Find users who have a HEARTBEAT.md file */
-export function loadHeartbeatUsers(): string[] {
-  return loadUserDirectories().filter((userDirName) => existsSync(join(config.usersDir, userDirName, "HEARTBEAT.md")));
+/** (user, agent) pairs that have a HEARTBEAT.md inside their agent folder. */
+export function loadHeartbeatAgents(): Array<{ userName: string; agentId: string }> {
+  const result: Array<{ userName: string; agentId: string }> = [];
+  for (const userDirName of loadUserDirectories()) {
+    for (const agentId of listAgentDirsForUser(userDirName)) {
+      if (existsSync(join(getUserAgentDir(userDirName, agentId), "HEARTBEAT.md"))) {
+        result.push({ userName: userDirName, agentId });
+      }
+    }
+  }
+  return result;
 }
 
 function loadUserDirectories(): string[] {
@@ -145,10 +262,13 @@ function loadUserDirectories(): string[] {
 }
 
 export function listScheduledEntries(): ScheduledEntry[] {
-  const allJobs = loadAllJobs().flatMap(({ userName, jobs }) => jobs.map((job) => ({ kind: "job" as const, userName, ...job })));
-  const heartbeats = loadHeartbeatUsers().map((userName) => ({
+  const allJobs = loadAllJobs().flatMap(({ userName, agentId, jobs }) =>
+    jobs.map((job) => ({ kind: "job" as const, userName, ...job, agentId: job.agentId || agentId })),
+  );
+  const heartbeats = loadHeartbeatAgents().map(({ userName, agentId }) => ({
     kind: "heartbeat" as const,
     userName,
+    agentId,
     id: "heartbeat",
     name: "Heartbeat",
     cron: "*/30 8-21 * * *",
@@ -184,14 +304,16 @@ export function getScheduledEntryNextRunAt(entry: Pick<ScheduledEntry, "cron" | 
 
 function updateJobRunState(userName: string, job: Job, patch: Partial<Job>): void {
   const user = toUserSlug(userName);
-  const jobs = loadUserJobs(user);
-  const agentId = job.agentId || "kellix";
-  const nextJobs = jobs.map((entry) => (entry.id === job.id && (entry.agentId || "kellix") === agentId ? { ...entry, ...patch } : entry));
-  saveUserJobs(user, nextJobs);
+  const agentId = agentOrDefault(job.agentId);
+  const path = getAgentJobsPath(user, agentId);
+  const jobs = readJobsFile(path);
+  const next = jobs.map((entry) => (entry.id === job.id ? { ...entry, ...patch } : entry));
+  writeJobsFile(path, next);
 }
 
 async function fireJob(userName: string, job: Job, brain: Brain) {
-  p.log.step(`Job: "${job.name}" → ${userName}/${job.agentId || "kellix"}`);
+  const agentId = agentOrDefault(job.agentId);
+  p.log.step(`Job: "${job.name}" → ${userName}/${agentId}`);
   const startedAt = Date.now();
   updateJobRunState(userName, job, {
     lastRunAt: new Date(startedAt).toISOString(),
@@ -212,7 +334,7 @@ async function fireJob(userName: string, job: Job, brain: Brain) {
       await brain.thinkIsolated(
         `REMINDER: This scheduled reminder is firing right now. Do not create, change, or ask follow-up questions about scheduling. Carry out the reminder immediately by sending the user the message they should receive now. Reminder instructions: ${job.prompt}`,
         userName,
-        job.agentId,
+        agentId,
       );
       updateJobRunState(userName, job, {
         lastRunAt: new Date(startedAt).toISOString(),
@@ -255,28 +377,27 @@ async function fireJob(userName: string, job: Job, brain: Brain) {
 
   // Delete one-off jobs after firing
   if (job.at) {
-    const jobs = loadUserJobs(userName).filter((j) => j.id !== job.id);
-    saveUserJobs(userName, jobs);
+    removeUserJob(userName, job.id, agentId);
   }
 }
 
-async function fireHeartbeat(userName: string, brain: Brain) {
-  p.log.step(`Heartbeat → ${userName}`);
+async function fireHeartbeat(userName: string, agentId: string, brain: Brain) {
+  p.log.step(`Heartbeat → ${userName}/${agentId}`);
   appendUserActivity(config.dataDir, {
     timestamp: new Date().toISOString(),
     userName,
     type: "job",
     status: "info",
-    summary: "Started heartbeat routine",
+    summary: `Started heartbeat routine (${agentId})`,
   });
   try {
-    await brain.thinkIsolated("HEARTBEAT: Check your HEARTBEAT.md checklist. Only message the user if something needs attention.", userName);
+    await brain.thinkIsolated("HEARTBEAT: Check your HEARTBEAT.md checklist. Only message the user if something needs attention.", userName, agentId);
     appendUserActivity(config.dataDir, {
       timestamp: new Date().toISOString(),
       userName,
       type: "job",
       status: "ok",
-      summary: "Completed heartbeat routine",
+      summary: `Completed heartbeat routine (${agentId})`,
     });
   } catch {
     appendUserActivity(config.dataDir, {
@@ -284,32 +405,32 @@ async function fireHeartbeat(userName: string, brain: Brain) {
       userName,
       type: "job",
       status: "error",
-      summary: "Heartbeat routine failed",
+      summary: `Heartbeat routine failed (${agentId})`,
     });
-    p.log.warn(`Heartbeat failed for ${userName}`);
+    p.log.warn(`Heartbeat failed for ${userName}/${agentId}`);
   }
 }
 
-async function fireDailyCompaction(userName: string, brain: Brain) {
-  p.log.step(`Daily compaction -> ${userName}`);
+async function fireDailyCompaction(userName: string, agentId: string, brain: Brain) {
+  p.log.step(`Daily compaction -> ${userName}/${agentId}`);
   try {
-    const compacted = await brain.compactPrimarySession(userName);
+    const compacted = await brain.compactPrimarySession(userName, agentId);
     if (!compacted) {
-      p.log.info(`Daily compaction skipped for ${userName} (no primary session yet)`);
+      p.log.info(`Daily compaction skipped for ${userName}/${agentId} (no primary session yet)`);
       return;
     }
-    p.log.info(`Daily compaction finished for ${userName}; primary session cleared`);
+    p.log.info(`Daily compaction finished for ${userName}/${agentId}; primary session cleared`);
   } catch (error) {
-    p.log.warn(`Daily compaction failed for ${userName}: ${error instanceof Error ? error.message : error}`);
+    p.log.warn(`Daily compaction failed for ${userName}/${agentId}: ${error instanceof Error ? error.message : error}`);
   }
 }
 
-function checkOneOffs(allUserJobs: UserJobs[], brain: Brain) {
+function checkOneOffs(allUserJobs: UserAgentJobs[], brain: Brain) {
   const now = Date.now();
-  for (const { userName, jobs } of allUserJobs) {
+  for (const { userName, agentId, jobs } of allUserJobs) {
     for (const job of jobs) {
       if (!job.at) continue;
-      const key = `${userName}:${job.agentId || "kellix"}:${job.id}`;
+      const key = `${userName}:${agentId}:${job.id}`;
       if (firedOneOffs.has(key)) continue;
       const at = new Date(job.at).getTime();
       if (!isNaN(at) && at <= now) {
@@ -320,19 +441,29 @@ function checkOneOffs(allUserJobs: UserJobs[], brain: Brain) {
   }
 }
 
+function listAllUserAgents(): Array<{ userName: string; agentId: string }> {
+  const out: Array<{ userName: string; agentId: string }> = [];
+  for (const userName of loadUserDirectories()) {
+    for (const agentId of listAgentDirsForUser(userName)) {
+      out.push({ userName, agentId });
+    }
+  }
+  return out;
+}
+
 export function startScheduler(brain: Brain) {
   let lastFingerprint = "";
 
   function sync(initial = false) {
     const allUserJobs = loadAllJobs();
-    const heartbeatUsers = loadHeartbeatUsers();
-    const compactionUsers = loadUserDirectories();
+    const heartbeats = loadHeartbeatAgents();
+    const compactionTargets = listAllUserAgents();
     const compactionTimezone = getSystemTimezone();
 
     const fingerprint = allUserJobs
-      .flatMap(({ userName, jobs }) => jobs.map((j) => `${userName}:${j.agentId || "kellix"}:${j.id}:${j.cron || j.at}:${j.disabled ? "disabled" : "enabled"}`))
-      .concat(heartbeatUsers.map((userName) => `heartbeat:${userName}`))
-      .concat(compactionUsers.map((userName) => `compaction:${userName}:${compactionTimezone}`))
+      .flatMap(({ userName, agentId, jobs }) => jobs.map((j) => `${userName}:${agentId}:${j.id}:${j.cron || j.at}:${j.disabled ? "disabled" : "enabled"}`))
+      .concat(heartbeats.map(({ userName, agentId }) => `heartbeat:${userName}:${agentId}`))
+      .concat(compactionTargets.map(({ userName, agentId }) => `compaction:${userName}:${agentId}:${compactionTimezone}`))
       .sort()
       .join("|");
 
@@ -342,13 +473,12 @@ export function startScheduler(brain: Brain) {
     }
     lastFingerprint = fingerprint;
 
-    // Stop all existing jobs
     for (const [, job] of activeJobs) {
       job.stop();
     }
     activeJobs.clear();
 
-    for (const { userName, jobs } of allUserJobs) {
+    for (const { userName, agentId, jobs } of allUserJobs) {
       for (const job of jobs) {
         if (job.disabled) continue;
         if (job.cron) {
@@ -359,39 +489,38 @@ export function startScheduler(brain: Brain) {
               start: true,
               timeZone: job.timezone,
             });
-            activeJobs.set(`${userName}:${job.agentId || "kellix"}:${job.id}`, cronJob);
-            p.log.info(`Scheduled "${job.name}" for ${userName}`);
+            activeJobs.set(`${userName}:${agentId}:${job.id}`, cronJob);
+            p.log.info(`Scheduled "${job.name}" for ${userName}/${agentId}`);
           } catch {
-            p.log.warn(`Invalid cron "${job.cron}" for ${userName}/${job.id}`);
+            p.log.warn(`Invalid cron "${job.cron}" for ${userName}/${agentId}/${job.id}`);
           }
         }
       }
     }
 
-    // Heartbeats
-    for (const userName of heartbeatUsers) {
+    for (const { userName, agentId } of heartbeats) {
       const hbJob = CronJob.from({
         cronTime: "*/30 8-21 * * *",
-        onTick: () => fireHeartbeat(userName, brain),
+        onTick: () => fireHeartbeat(userName, agentId, brain),
         start: true,
       });
-      activeJobs.set(`heartbeat:${userName}`, hbJob);
+      activeJobs.set(`heartbeat:${userName}:${agentId}`, hbJob);
     }
-    if (heartbeatUsers.length > 0) {
-      p.log.info(`Heartbeat active for ${heartbeatUsers.join(", ")}`);
+    if (heartbeats.length > 0) {
+      p.log.info(`Heartbeat active for ${heartbeats.map((h) => `${h.userName}/${h.agentId}`).join(", ")}`);
     }
 
-    for (const userName of compactionUsers) {
+    for (const { userName, agentId } of compactionTargets) {
       const compactionJob = CronJob.from({
         cronTime: DAILY_COMPACTION_CRON,
-        onTick: () => fireDailyCompaction(userName, brain),
+        onTick: () => fireDailyCompaction(userName, agentId, brain),
         start: true,
         timeZone: compactionTimezone,
       });
-      activeJobs.set(`compaction:${userName}`, compactionJob);
+      activeJobs.set(`compaction:${userName}:${agentId}`, compactionJob);
     }
-    if (compactionUsers.length > 0) {
-      p.log.info(`Daily compaction active for ${compactionUsers.join(", ")} (${compactionTimezone})`);
+    if (compactionTargets.length > 0) {
+      p.log.info(`Daily compaction active for ${compactionTargets.length} agents (${compactionTimezone})`);
     }
 
     const totalJobs = allUserJobs.reduce((n, u) => n + u.jobs.filter((j) => !j.disabled).length, 0);
