@@ -1,0 +1,43 @@
+name: grafana-watchdog
+description: Poll Grafana for critical alerts every 5 min. Only invoke the LLM (and ask for approval) when something is actually firing — keeps cost near zero on healthy ticks.
+
+triggers:
+  - cron: "*/5 * * * *"
+
+concurrency:
+  mode: skip
+
+steps:
+  - id: poll
+    script: skills/grafana-monitor/scripts/check-alerts.sh
+    args: ["${userName}"]
+
+  - id: critical
+    pipeline: where "$_.severity == 'critical'"
+    input: "$steps.poll.json"
+
+  - id: summarize
+    when: "$steps.critical.json.length > 0"
+    llm:
+      prompt: |
+        Summarize these critical Grafana alerts for Robert in 2-3 sentences.
+        Focus on user-facing impact, not internals.
+
+        Alerts:
+        ${$steps.critical.json}
+
+  - id: gate
+    when: "$steps.summarize.stdout != ''"
+    approval:
+      reason: |
+        ${$steps.summarize.stdout}
+
+        Page on-call now?
+      timeout_ms: 600000
+      buttons:
+        - ["Page on-call", "Acknowledge", "Ignore"]
+
+  - id: page
+    when: "$steps.gate.approved && $steps.gate.response == 'Page on-call'"
+    script: skills/pagerduty/scripts/page.sh
+    args: ["${userName}"]

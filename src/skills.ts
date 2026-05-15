@@ -53,6 +53,20 @@ export function validateProjectScriptsManifest(projectRoot: string): void {
   validateSkillManifest(manifestPath, scriptsDir);
 }
 
+export function syncBundledWorkflowDocs(defaultWorkflowsDir: string, agentWorkflowsDir: string): void {
+  // Copy WORKFLOW_TEMPLATE.md + SCHEMA.json into the agent's workflows/ so the
+  // agent has the spec alongside its own .workflow.yaml files. Examples are
+  // intentionally NOT copied — they have cron triggers that would activate
+  // automatically. Agents copy + adapt from defaults/workflows/examples/.
+  if (!existsSync(defaultWorkflowsDir)) return;
+  mkdirSync(agentWorkflowsDir, { recursive: true });
+  for (const file of ["WORKFLOW_TEMPLATE.md", "SCHEMA.json"]) {
+    const src = join(defaultWorkflowsDir, file);
+    const dest = join(agentWorkflowsDir, file);
+    if (existsSync(src) && !existsSync(dest)) cpSync(src, dest);
+  }
+}
+
 export function syncBundledSkillsForUser(
   defaultSkillsDir: string,
   userSkillsDir: string,

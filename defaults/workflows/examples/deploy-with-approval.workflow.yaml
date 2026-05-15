@@ -1,0 +1,40 @@
+name: deploy-with-approval
+description: Multi-stage prod deploy with required-different-approver and an explicit rollback path on failure.
+
+steps:
+  - id: build
+    run: ./scripts/build.sh
+
+  - id: review-gate
+    approval:
+      reason: |
+        Build succeeded. Review the diff and approve to proceed to staging.
+        Diff: ${$args.diff_url}
+      required_approver: robert
+      timeout_ms: 3600000
+
+  - id: deploy-staging
+    when: "$steps.review-gate.approved"
+    script: skills/deploy/scripts/deploy.sh
+    args: ["${userName}", "staging"]
+
+  - id: smoke
+    when: "$steps.review-gate.approved"
+    script: skills/deploy/scripts/smoke.sh
+    args: ["${userName}", "staging"]
+    retry:
+      max: 3
+      backoff: exponential
+      delay_ms: 5000
+
+  - id: prod-gate
+    when: "$steps.smoke.json.ok"
+    approval:
+      reason: "Staging smoke passed. Promote to prod? (different approver required)"
+      require_different_approver: true
+      timeout_ms: 3600000
+
+  - id: deploy-prod
+    when: "$steps.prod-gate.approved"
+    script: skills/deploy/scripts/deploy.sh
+    args: ["${userName}", "prod"]

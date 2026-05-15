@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kellix.dev/schemas/workflow.json",
+  "title": "Kellix Workflow",
+  "type": "object",
+  "required": ["name", "steps"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "description": "Unique workflow name within the agent." },
+    "description": { "type": "string" },
+    "args": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "description": { "type": "string" },
+          "default": {},
+          "required": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "triggers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "cron": { "type": "string" },
+          "at": { "type": "string" },
+          "every": { "type": "string" },
+          "manual": { "type": "boolean" },
+          "webhook": { "type": "string" },
+          "event": { "type": "string" },
+          "timezone": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "condition": { "type": "string" },
+    "concurrency": {
+      "type": "object",
+      "properties": {
+        "mode": { "enum": ["queue", "skip", "parallel"] },
+        "limit": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "approval_defaults": {
+      "type": "object",
+      "properties": {
+        "required_approver": { "type": "string" },
+        "require_different_approver": { "type": "boolean" },
+        "timeout_ms": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "steps": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Step" }
+    }
+  },
+  "$defs": {
+    "Retry": {
+      "type": "object",
+      "required": ["max"],
+      "properties": {
+        "max": { "type": "integer", "minimum": 0 },
+        "backoff": { "enum": ["exponential", "linear", "none"] },
+        "delay_ms": { "type": "integer", "minimum": 0 },
+        "max_delay_ms": { "type": "integer", "minimum": 0 },
+        "jitter": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "StepCommon": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "when": { "type": "string" },
+        "condition": { "type": "string" },
+        "on_error": { "enum": ["stop", "continue", "skip_rest"] },
+        "retry": { "$ref": "#/$defs/Retry" },
+        "env": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "Step": {
+      "type": "object",
+      "required": ["id"],
+      "oneOf": [
+        {
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" }, "when": { "type": "string" }, "condition": { "type": "string" },
+            "on_error": { "enum": ["stop", "continue", "skip_rest"] }, "retry": { "$ref": "#/$defs/Retry" }, "env": { "type": "object", "additionalProperties": { "type": "string" } },
+            "run": { "type": "string" },
+            "timeout_ms": { "type": "integer", "minimum": 0 },
+            "cwd": { "type": "string" },
+            "stdin": { "type": "string" }
+          },
+          "required": ["run"]
+        },
+        {
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" }, "when": { "type": "string" }, "condition": { "type": "string" },
+            "on_error": { "enum": ["stop", "continue", "skip_rest"] }, "retry": { "$ref": "#/$defs/Retry" }, "env": { "type": "object", "additionalProperties": { "type": "string" } },
+            "script": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "timeout_ms": { "type": "integer", "minimum": 0 }
+          },
+          "required": ["script"]
+        },
+        {
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" }, "when": { "type": "string" }, "condition": { "type": "string" },
+            "on_error": { "enum": ["stop", "continue", "skip_rest"] }, "retry": { "$ref": "#/$defs/Retry" }, "env": { "type": "object", "additionalProperties": { "type": "string" } },
+            "llm": {
+              "type": "object",
+              "required": ["prompt"],
+              "properties": {
+                "prompt": { "type": "string" },
+                "isolated": { "type": "boolean" },
+                "return": { "enum": ["stdout", "json"] }
+              }
+            }
+          },
+          "required": ["llm"]
+        },
+        {
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" }, "when": { "type": "string" }, "condition": { "type": "string" },
+            "on_error": { "enum": ["stop", "continue", "skip_rest"] }, "retry": { "$ref": "#/$defs/Retry" }, "env": { "type": "object", "additionalProperties": { "type": "string" } },
+            "pipeline": { "type": "string", "description": "e.g. `where \"$_.severity == 'high'\"` or `pick a,b,c` or `json` or `table`" },
+            "input": { "type": "string" }
+          },
+          "required": ["pipeline"]
+        },
+        {
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" }, "when": { "type": "string" }, "condition": { "type": "string" },
+            "on_error": { "enum": ["stop", "continue", "skip_rest"] }, "retry": { "$ref": "#/$defs/Retry" }, "env": { "type": "object", "additionalProperties": { "type": "string" } },
+            "approval": {
+              "type": "object",
+              "required": ["reason"],
+              "properties": {
+                "reason": { "type": "string" },
+                "required_approver": { "type": "string" },
+                "require_different_approver": { "type": "boolean" },
+                "timeout_ms": { "type": "integer", "minimum": 0 },
+                "buttons": { "type": "array", "items": { "type": "array", "items": { "type": "string" } } }
+              }
+            }
+          },
+          "required": ["approval"]
+        },
+        {
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" }, "when": { "type": "string" }, "condition": { "type": "string" },
+            "on_error": { "enum": ["stop", "continue", "skip_rest"] }, "retry": { "$ref": "#/$defs/Retry" }, "env": { "type": "object", "additionalProperties": { "type": "string" } },
+            "workflow": { "type": "string" },
+            "args": { "type": "object" },
+            "loop": {
+              "type": "object",
+              "required": ["max_iterations"],
+              "properties": {
+                "max_iterations": { "type": "integer", "minimum": 1 },
+                "condition": { "type": "string" }
+              }
+            }
+          },
+          "required": ["workflow"]
+        },
+        {
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" }, "when": { "type": "string" }, "condition": { "type": "string" },
+            "on_error": { "enum": ["stop", "continue", "skip_rest"] }, "retry": { "$ref": "#/$defs/Retry" }, "env": { "type": "object", "additionalProperties": { "type": "string" } },
+            "cross_agent": {
+              "type": "object",
+              "required": ["agent", "workflow"],
+              "properties": {
+                "agent": { "type": "string" },
+                "workflow": { "type": "string" },
+                "user": { "type": "string" },
+                "args": { "type": "object" },
+                "mode": { "enum": ["sync", "async"] },
+                "timeout_ms": { "type": "integer", "minimum": 0 }
+              }
+            }
+          },
+          "required": ["cross_agent"]
+        },
+        {
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" }, "when": { "type": "string" }, "condition": { "type": "string" },
+            "on_error": { "enum": ["stop", "continue", "skip_rest"] }, "retry": { "$ref": "#/$defs/Retry" }, "env": { "type": "object", "additionalProperties": { "type": "string" } },
+            "wait": {
+              "type": "object",
+              "properties": {
+                "for_ms": { "type": "integer", "minimum": 0 },
+                "until": { "type": "string" },
+                "poll_ms": { "type": "integer", "minimum": 100 },
+                "timeout_ms": { "type": "integer", "minimum": 0 }
+              }
+            }
+          },
+          "required": ["wait"]
+        }
+      ]
+    }
+  }
+}

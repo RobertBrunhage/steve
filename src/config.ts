@@ -47,6 +47,7 @@ export interface KellixConfig {
   sharedDir: string;
   defaultsDir: string;
   defaultSkillsDir: string;
+  defaultWorkflowsDir: string;
   vaultDir: string;
   mcpPort: number;
   webPort: number;
@@ -117,6 +118,7 @@ export const config: KellixConfig = Object.freeze({
   sharedDir: join(kellixDir, "shared"),
   defaultsDir: join(projectRoot, "defaults"),
   defaultSkillsDir: join(projectRoot, "defaults/skills"),
+  defaultWorkflowsDir: join(projectRoot, "defaults/workflows"),
   vaultDir,
   mcpPort,
   webPort,

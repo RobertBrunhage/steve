@@ -18,10 +18,10 @@ import {
   OPENCODE_AGENT_FILE,
 } from "./brand.js";
 import { syncUserAgentsRuntime } from "./agents.js";
-import { kellixDir, config, getUserAgentDir, getUserAgentSkillsDir, getUserDir } from "./config.js";
+import { kellixDir, config, getUserAgentDir, getUserAgentSkillsDir, getUserAgentWorkflowsDir, getUserDir } from "./config.js";
 import { migrateLegacyUserJobs } from "./scheduler.js";
 import { getTelegramBotToken } from "./secrets.js";
-import { syncBundledSkillsForUser, validateProjectScriptsManifest, validateSkillDirectories } from "./skills.js";
+import { syncBundledSkillsForUser, syncBundledWorkflowDocs, validateProjectScriptsManifest, validateSkillDirectories } from "./skills.js";
 import { readUserAgentsConfig, writeUserAgentsConfig, type KellixUserAgent } from "./user-agents.js";
 import { Vault, readKeyfile, initializeVault, hasKeyfile } from "./vault/index.js";
 import { migrateUsersVaultKey, readUsersFromVault, toUserSlug, type UsersMap, uniqueUserSlugs, writeUserManifest } from "./users.js";
@@ -160,6 +160,12 @@ export function setupUserWorkspace(userName: string) {
         cpSync(join(pluginSrc, file), join(pluginDest, file));
       }
     }
+
+    // Every agent gets the workflow spec + JSON Schema alongside any of its
+    // own .workflow.yaml files. Examples stay in defaults/workflows/examples/
+    // and are referenced by docs (they have cron triggers and shouldn't fire
+    // on every agent automatically).
+    syncBundledWorkflowDocs(config.defaultWorkflowsDir, getUserAgentWorkflowsDir(userName, agent.id));
 
     if (agent.id === APP_SLUG) {
       syncBundledSkillsForUser(config.defaultSkillsDir, getUserAgentSkillsDir(userName, agent.id));
