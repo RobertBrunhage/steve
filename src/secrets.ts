@@ -23,6 +23,19 @@ export function setTelegramBotToken(vault: Vault, token: string): void {
   vault.set(SYSTEM_TELEGRAM_BOT_TOKEN_KEY, token as any);
 }
 
+export function getAgentTelegramBotTokenKey(userName: string, agentId: string): string {
+  return `users/${toUserSlug(userName)}/agents/${toUserSlug(agentId)}/telegram/bot_token`;
+}
+
+export function getAgentTelegramBotToken(vault: Vault | null, userName: string, agentId: string): string | null {
+  if (!vault) return null;
+  return vault.getString(getAgentTelegramBotTokenKey(userName, agentId)) || null;
+}
+
+export function setAgentTelegramBotToken(vault: Vault, userName: string, agentId: string, token: string): void {
+  vault.set(getAgentTelegramBotTokenKey(userName, agentId), token as any);
+}
+
 export function hasTelegramBotToken(vault: Vault | null): boolean {
   return !!getTelegramBotToken(vault);
 }

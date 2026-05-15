@@ -6,8 +6,9 @@ import { readUserActivity } from "../activity.js";
 import { clearAttachedBrowserConfig, readAttachedBrowserConfig, writeAttachedBrowserConfig } from "../browser/attachments.js";
 import { getBrowserCompanionStatus } from "../browser/companion-status.js";
 import { config, getBaseUrl, getBrowserSettings, getUserDir, refreshRuntimeConfigFromVault } from "../config.js";
-import { deleteUserAppSecret, getUserAppSecret, listUserAppSecrets, setUserAppSecret } from "../secrets.js";
+import { deleteUserAppSecret, getUserAppSecret, listUserAppSecrets, setAgentTelegramBotToken, setUserAppSecret } from "../secrets.js";
 import { generateRuntimeConfig, setupUserWorkspace } from "../setup.js";
+import { deleteUserKellixAgent, normalizeAgentId, readUserAgentsConfig, setDefaultUserAgent, updateUserAgentTelegram, upsertUserKellixAgent } from "../user-agents.js";
 import { addOrUpdateTelegramUser, ensureUser, getTelegramChatId, readUsersFromVault, writeUserManifest, writeUsersToVault } from "../users.js";
 import { mergeFieldsWithExistingValue, parseFields, valueToFields } from "./common.js";
 import {
@@ -134,6 +135,7 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     }
 
     const browserCompanion = await getBrowserCompanionStatus();
+    const kellixAgentsConfig = readUserAgentsConfig(name);
 
     return {
       ocStatus,
@@ -149,6 +151,8 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
       telegramChatId: getTelegramChatId(users, name),
       userSecrets: listUserAppSecrets(deps.getVault(), name),
       recentActivity: readUserActivity(config.dataDir, name, 6),
+      kellixAgents: kellixAgentsConfig.agents,
+      defaultAgentId: kellixAgentsConfig.defaultAgentId,
     };
   }
 
@@ -421,6 +425,97 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     }
 
     return c.redirect(`/users/${name}/agent`);
+  });
+
+  app.post("/users/:name/agents", async (c) => {
+    const result = await deps.requireAdminForm(c);
+    if (result instanceof Response) return result;
+
+    const validatedName = validateUserSlug(String(c.req.param("name") || ""));
+    if (!validatedName.ok) return c.redirect("/");
+
+    const id = normalizeAgentId(String(result.body.id || ""));
+    const name = String(result.body.name || "").trim();
+    const goal = String(result.body.goal || "").trim();
+    if (!id || !name || !goal) {
+      setFlash(c, "Agent ID, name, and goal are required", "error");
+      return c.redirect(`/users/${validatedName.value}/agent`);
+    }
+
+    upsertUserKellixAgent(validatedName.value, { id, name, goal });
+    const users = readUsersFromVault(deps.getVault());
+    generateRuntimeConfig(users);
+    setFlash(c, `Agent ${name} created`);
+    return c.redirect(`/users/${validatedName.value}/agent`);
+  });
+
+  app.post("/users/:name/agents/:agent", async (c) => {
+    const result = await deps.requireAdminForm(c);
+    if (result instanceof Response) return result;
+    const validatedName = validateUserSlug(String(c.req.param("name") || ""));
+    if (!validatedName.ok) return c.redirect("/");
+    const agentId = normalizeAgentId(String(c.req.param("agent") || ""));
+    const existing = readUserAgentsConfig(validatedName.value).agents.find((agent) => agent.id === agentId);
+    if (!existing) return c.redirect(`/users/${validatedName.value}/agent`);
+    const name = String(result.body.name || "").trim();
+    const goal = String(result.body.goal || "").trim();
+    if (!name || !goal) {
+      setFlash(c, "Agent name and goal are required", "error");
+      return c.redirect(`/users/${validatedName.value}/agent`);
+    }
+    upsertUserKellixAgent(validatedName.value, { ...existing, name, goal });
+    generateRuntimeConfig(readUsersFromVault(deps.getVault()));
+    setFlash(c, "Agent saved");
+    return c.redirect(`/users/${validatedName.value}/agent`);
+  });
+
+  app.post("/users/:name/agents/:agent/default", async (c) => {
+    const result = await deps.requireAdminForm(c);
+    if (result instanceof Response) return result;
+    const validatedName = validateUserSlug(String(c.req.param("name") || ""));
+    if (!validatedName.ok) return c.redirect("/");
+    setDefaultUserAgent(validatedName.value, String(c.req.param("agent") || ""));
+    setFlash(c, "Default agent updated");
+    return c.redirect(`/users/${validatedName.value}/agent`);
+  });
+
+  app.post("/users/:name/agents/:agent/delete", async (c) => {
+    const result = await deps.requireAdminForm(c);
+    if (result instanceof Response) return result;
+    const validatedName = validateUserSlug(String(c.req.param("name") || ""));
+    if (!validatedName.ok) return c.redirect("/");
+    deleteUserKellixAgent(validatedName.value, String(c.req.param("agent") || ""));
+    generateRuntimeConfig(readUsersFromVault(deps.getVault()));
+    setFlash(c, "Agent deleted");
+    return c.redirect(`/users/${validatedName.value}/agent`);
+  });
+
+  app.post("/users/:name/agents/:agent/telegram", async (c) => {
+    const result = await deps.requireAdminForm(c);
+    if (result instanceof Response) return result;
+
+    const validatedName = validateUserSlug(String(c.req.param("name") || ""));
+    if (!validatedName.ok) return c.redirect("/");
+    const agentId = normalizeAgentId(String(c.req.param("agent") || ""));
+    const botToken = String(result.body.bot_token || "").trim();
+    const chatId = String(result.body.chat_id || "").trim();
+    if (chatId && !validateTelegramId(chatId)) {
+      setFlash(c, "Telegram chat ID must be numeric", "error");
+      return c.redirect(`/users/${validatedName.value}/agent`);
+    }
+    updateUserAgentTelegram(validatedName.value, agentId, {
+      chatId,
+    });
+    if (botToken) {
+      const vault = deps.getVault();
+      if (!vault) {
+        setFlash(c, "Vault is locked", "error");
+        return c.redirect(`/users/${validatedName.value}/agent`);
+      }
+      setAgentTelegramBotToken(vault, validatedName.value, agentId, botToken);
+    }
+    setFlash(c, "Agent Telegram settings saved");
+    return c.redirect(`/users/${validatedName.value}/agent`);
   });
 
   app.get("/users/:name", async (c) => {

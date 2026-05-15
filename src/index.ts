@@ -16,10 +16,11 @@ import { setTelegramConnected, setVault } from "./health.js";
 import { TelegramChannel } from "./channels/telegram.js";
 import { registerChannel } from "./channels/index.js";
 import { hasKeyfile } from "./vault/index.js";
-import { getTelegramBotToken } from "./secrets.js";
+import { getAgentTelegramBotToken, getTelegramBotToken } from "./secrets.js";
 import { getAllowedTelegramIds, normalizeUsers, readUsersFromVault, type UsersMap, writeUserManifest } from "./users.js";
 import type { Vault } from "./vault/index.js";
 import { getBrowserService } from "./browser/index.js";
+import { listTelegramAgentRoutes } from "./user-agents.js";
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -73,14 +74,14 @@ async function waitForConfiguration(vault: Vault, botToken: string, users: Users
   return { botToken: nextBotToken, users: nextUsers };
 }
 
-async function startBot(botToken: string, brain: Brain) {
+async function startBot(botToken: string, brain: Brain, route?: { userName: string; agentId?: string; botToken?: string }) {
   const MAX_RETRIES = 5;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     const bot = createBot(botToken);
 
-    registerCommands(bot, brain);
-    registerMessageHandler(bot, brain);
+    registerCommands(bot, brain, route);
+    registerMessageHandler(bot, brain, route);
 
       await bot.api.setMyCommands([
       { command: "start", description: "Start Kellix" },
@@ -89,7 +90,7 @@ async function startBot(botToken: string, brain: Brain) {
       { command: "history", description: "View recent training history" },
     ]);
 
-    startScheduler(brain);
+    if (!route) startScheduler(brain);
 
     await bot.api.deleteWebhook({ drop_pending_updates: true });
 
@@ -101,7 +102,7 @@ async function startBot(botToken: string, brain: Brain) {
       await new Promise<void>((resolve, reject) => {
         bot.start({
           onStart: () => {
-            p.log.success("Listening for messages");
+            p.log.success(route?.agentId ? `Listening for ${route.userName}/${route.agentId}` : "Listening for messages");
             resolve();
           },
         });
@@ -176,7 +177,7 @@ async function main() {
 
 async function startServices(vault: Vault, botToken: string, users: UsersMap) {
   // MCP server
-  const channel = new TelegramChannel(botToken);
+  const channel = new TelegramChannel(botToken, vault);
   registerChannel(channel);
 
   const mcpFactory = createMcpServerFactory(
@@ -192,7 +193,13 @@ async function startServices(vault: Vault, botToken: string, users: UsersMap) {
   const brain = new Brain();
   setTelegramConnected(true);
 
-  await startBot(botToken, brain);
+  await Promise.all([
+    startBot(botToken, brain),
+    ...listTelegramAgentRoutes(Object.keys(users))
+      .map((route) => ({ ...route, botToken: getAgentTelegramBotToken(vault, route.userName, route.agentId) }))
+      .filter((route): route is { userName: string; agentId: string; chatId?: string; botToken: string } => !!route.botToken)
+      .map((route) => startBot(route.botToken, brain, route)),
+  ]);
 }
 
 main().catch((error) => {

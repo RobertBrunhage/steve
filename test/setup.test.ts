@@ -73,6 +73,8 @@ async function run() {
   const { getOrAllocateBrowserState } = await import("../src/browser/state.js");
   const { renderJobsPage } = await import("../src/web/views.js");
   const { getVisibleScheduledEntryCount } = await import("../src/scheduler.js");
+  const { listTelegramAgentRoutes, readUserAgentsConfig, upsertUserKellixAgent } = await import("../src/user-agents.js");
+  const { getAgentTelegramBotToken } = await import("../src/secrets.js");
   const result = await runSetup();
 
   test("no vault: returns null vault", () => {
@@ -254,6 +256,34 @@ async function run() {
     const agent = readFileSync(join(testDir, "users", "testuser", ".opencode", "agents", "kellix.md"), "utf-8");
     assert.match(agent, /Current Kellix user: testuser/);
     assert.match(agent, /always use this exact userName: testuser/);
+    assert.match(agent, /permission: allow/);
+    assert.doesNotMatch(agent, /permission: question/);
+    assert.doesNotMatch(agent, /plan_enter/);
+  });
+
+  test("default Kellix agent config is created for existing behavior", () => {
+    const agents = readUserAgentsConfig("testuser");
+    assert.equal(agents.defaultAgentId, "kellix");
+    assert.deepEqual(agents.agents.map((agent) => agent.id), ["kellix"]);
+  });
+
+  test("additional Kellix agents generate OpenCode agent files", () => {
+    upsertUserKellixAgent("testuser", {
+      id: "sysadmin",
+      name: "Sysadmin",
+      goal: "Watch the cluster and escalate when health checks fail.",
+    });
+    setup2.setupUserWorkspace("testuser");
+    setup2.generateRuntimeConfig(result3.users);
+    const agentPath = join(testDir, "users", "testuser", ".opencode", "agents", "sysadmin.md");
+    assert.ok(existsSync(agentPath));
+    assert.ok(existsSync(join(testDir, "users", "testuser", "agents", "sysadmin", "memory")));
+    assert.ok(existsSync(join(testDir, "users", "testuser", "agents", "sysadmin", "skills")));
+    const agent = readFileSync(agentPath, "utf-8");
+    assert.match(agent, /Current Kellix agent: sysadmin/);
+    assert.match(agent, /agents\/sysadmin\/memory/);
+    assert.match(agent, /Watch the cluster/);
+    assert.equal(readUserAgentsConfig("testuser").defaultAgentId, "kellix");
   });
 
   test("users.json written", () => {
@@ -528,6 +558,7 @@ async function run() {
   }]);
   saveUserJobs("friend", [{
     id: "weekly-review",
+    agentId: "coach",
     name: "Weekly Review",
     prompt: "Ask for a weekly review",
     cron: "0 9 * * 1",
@@ -541,6 +572,7 @@ async function run() {
     assert.match(jobsHtml, /<h1 class="text-xl font-display font-bold text-neutral-900">Tasks<\/h1>/);
     assert.match(jobsHtml, /Doctor Check-In/);
     assert.match(jobsHtml, /Weekly Review/);
+    assert.match(jobsHtml, /coach/);
     assert.match(jobsHtml, /Needs confirmation/);
     assert.match(jobsHtml, /Resume/);
     assert.match(jobsHtml, /Pause/);
@@ -578,7 +610,7 @@ async function run() {
       "content-type": "application/x-www-form-urlencoded",
       cookie: adminCookie || "",
     },
-    body: new URLSearchParams({ _csrf: adminCsrf || "", user: "friend", id: "weekly-review", disabled: "true" }),
+    body: new URLSearchParams({ _csrf: adminCsrf || "", user: "friend", agent: "coach", id: "weekly-review", disabled: "true" }),
   });
 
   test("web jobs: jobs can be paused from the jobs page", () => {
@@ -593,7 +625,7 @@ async function run() {
       "content-type": "application/x-www-form-urlencoded",
       cookie: adminCookie || "",
     },
-    body: new URLSearchParams({ _csrf: adminCsrf || "", user: "robert", id: "doctor-checkin" }),
+    body: new URLSearchParams({ _csrf: adminCsrf || "", user: "robert", agent: "kellix", id: "doctor-checkin" }),
   });
 
   test("web jobs: jobs can be deleted from the jobs page", () => {
@@ -697,9 +729,127 @@ async function run() {
 
   test("web users: agent page includes model controls", () => {
     assert.equal(agentPage.status, 200);
+    assert.match(agentPageHtml, /Kellix agents/);
+    assert.match(agentPageHtml, /action="\/users\/friend\/agents"/);
     assert.match(agentPageHtml, /The model Kellix uses when responding to Telegram messages and running background tasks for this member/);
     assert.match(agentPageHtml, /openai\/gpt-5\.4-mini/);
     assert.match(agentPageHtml, /action="\/users\/friend\/agent\/model"/);
+  });
+
+  const createSpecialistAgent = await app.request("/users/friend/agents", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      cookie: adminCookie || "",
+    },
+    body: new URLSearchParams({
+      _csrf: adminCsrf || "",
+      id: "marketing",
+      name: "Marketing",
+      goal: "Watch campaign performance and suggest changes.",
+    }),
+  });
+  test("web users: specialist agents can be created from the agent page", () => {
+    assert.equal(createSpecialistAgent.status, 302);
+    assert.equal(createSpecialistAgent.headers.get("location"), "/users/friend/agent");
+    assert.ok(existsSync(join(testDir, "users", "friend", ".opencode", "agents", "marketing.md")));
+    assert.match(readFileSync(join(testDir, "users", "friend", "agents.json"), "utf-8"), /marketing/);
+  });
+
+  const saveAgentTelegram = await app.request("/users/friend/agents/marketing/telegram", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      cookie: adminCookie || "",
+    },
+    body: new URLSearchParams({
+      _csrf: adminCsrf || "",
+      bot_token: "123:marketing-token",
+      chat_id: "456789",
+    }),
+  });
+
+  test("web users: specialist agents can have their own Telegram bot", () => {
+    assert.equal(saveAgentTelegram.status, 302);
+    assert.equal(saveAgentTelegram.headers.get("location"), "/users/friend/agent");
+    const agents = readUserAgentsConfig("friend");
+    const marketing = agents.agents.find((agent) => agent.id === "marketing");
+    assert.equal(marketing?.channels?.telegram?.chatId, "456789");
+    assert.equal(getAgentTelegramBotToken(new Vault(join(testDir, "vault"), webVaultKey!), "friend", "marketing"), "123:marketing-token");
+    assert.doesNotMatch(readFileSync(join(testDir, "users", "friend", "agents.json"), "utf-8"), /marketing-token/);
+    assert.deepEqual(listTelegramAgentRoutes(["friend"]).map((agent) => `${agent.userName}/${agent.agentId}`), ["friend/marketing"]);
+  });
+
+  const editSpecialistAgent = await app.request("/users/friend/agents/marketing", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      cookie: adminCookie || "",
+    },
+    body: new URLSearchParams({
+      _csrf: adminCsrf || "",
+      name: "Growth",
+      goal: "Watch campaigns and recommend growth changes.",
+    }),
+  });
+
+  test("web users: specialist agents can be edited", () => {
+    assert.equal(editSpecialistAgent.status, 302);
+    const growth = readUserAgentsConfig("friend").agents.find((agent) => agent.id === "marketing");
+    assert.equal(growth?.name, "Growth");
+    assert.equal(growth?.goal, "Watch campaigns and recommend growth changes.");
+  });
+
+  const setDefaultAgent = await app.request("/users/friend/agents/marketing/default", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      cookie: adminCookie || "",
+    },
+    body: new URLSearchParams({ _csrf: adminCsrf || "" }),
+  });
+
+  test("web users: specialist agents can become default", () => {
+    assert.equal(setDefaultAgent.status, 302);
+    assert.equal(readUserAgentsConfig("friend").defaultAgentId, "marketing");
+  });
+
+  const createAgentJob = await app.request("/jobs", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      cookie: adminCookie || "",
+    },
+    body: new URLSearchParams({
+      _csrf: adminCsrf || "",
+      target: "friend:marketing",
+      id: "campaign-watch",
+      name: "Campaign Watch",
+      cron: "*/15 * * * *",
+      prompt: "Check campaign performance and escalate changes.",
+    }),
+  });
+
+  test("web jobs: agent-scoped jobs can be created from dashboard", () => {
+    assert.equal(createAgentJob.status, 302);
+    const job = loadUserJobs("friend").find((entry) => entry.id === "campaign-watch");
+    assert.equal(job?.agentId, "marketing");
+    assert.equal(job?.cron, "*/15 * * * *");
+  });
+
+  const deleteSpecialistAgent = await app.request("/users/friend/agents/marketing/delete", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      cookie: adminCookie || "",
+    },
+    body: new URLSearchParams({ _csrf: adminCsrf || "" }),
+  });
+
+  test("web users: specialist agents can be deleted", () => {
+    assert.equal(deleteSpecialistAgent.status, 302);
+    assert.equal(readUserAgentsConfig("friend").agents.some((agent) => agent.id === "marketing"), false);
+    assert.equal(readUserAgentsConfig("friend").defaultAgentId, "kellix");
   });
 
   test("web users: agent page keeps the configured model selectable when the runtime omits it", () => {

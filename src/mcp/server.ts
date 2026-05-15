@@ -77,11 +77,12 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
       "Send a message to a user. Use this to respond to users. This is the ONLY way to communicate with users.",
     inputSchema: {
       userName: z.string().describe("The name of the user to send the message to"),
+      agentId: z.string().optional().describe("Optional Kellix agent id. Use the current agent id when available."),
       message: z.string().describe("The message text to send (supports HTML)"),
       buttons: z.array(z.array(z.string())).optional().describe("Optional inline button rows, e.g. [['Yes','No']]"),
     },
-  }, async ({ userName, message, buttons }) => {
-    const result = await channel.sendMessage(userName, message, buttons ? { buttons } : undefined);
+  }, async ({ userName, agentId, message, buttons }) => {
+    const result = await channel.sendMessage(userName, message, { ...(buttons ? { buttons } : {}), ...(agentId ? { agentId } : {}) });
     if (!result.ok) {
       console.warn(`send_message failed for ${userName}: ${result.error || "unknown error"}`);
       appendUserActivity(config.dataDir, {
@@ -116,11 +117,12 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
       "Send a local file to a user, such as a browser screenshot or downloaded document.",
     inputSchema: {
       userName: z.string().describe("The name of the user to send the file to"),
+      agentId: z.string().optional().describe("Optional Kellix agent id. Use the current agent id when available."),
       filePath: z.string().describe("Absolute local path to the file"),
       caption: z.string().optional().describe("Optional caption to include with the file"),
     },
-  }, async ({ userName, filePath, caption }) => {
-    const result = await channel.sendFile(userName, filePath, caption);
+  }, async ({ userName, agentId, filePath, caption }) => {
+    const result = await channel.sendFile(userName, filePath, caption, agentId ? { agentId } : undefined);
     if (!result.ok) {
       return {
         content: [{ type: "text", text: `Error: ${result.error || "unknown error"}` }],
@@ -223,6 +225,7 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
       userName: z.string().describe("The user name"),
       job: z.object({
         id: z.string(),
+        agentId: z.string().optional().describe("Optional Kellix agent id. Defaults to the user's main kellix agent."),
         name: z.string(),
         prompt: z.string(),
         cron: z.string().optional(),

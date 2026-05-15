@@ -6,8 +6,8 @@ export interface SendResult {
 
 export interface Channel {
   readonly name: string;
-  sendMessage(userId: string, text: string, options?: { buttons?: string[][] }): Promise<SendResult>;
-  sendFile(userId: string, filePath: string, caption?: string): Promise<SendResult>;
+  sendMessage(userId: string, text: string, options?: { buttons?: string[][]; agentId?: string }): Promise<SendResult>;
+  sendFile(userId: string, filePath: string, caption?: string, options?: { agentId?: string }): Promise<SendResult>;
   editMessage(userId: string, messageId: string, text: string): Promise<SendResult>;
 }
 

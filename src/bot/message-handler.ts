@@ -8,9 +8,11 @@ import { config, getRuntime, getTelegramApiBase, getUserDir } from "../config.js
 import { getUserName } from "./commands.js";
 
 type DownloadedPhoto = { hostPath: string; containerPath: string };
+type BotRoute = { userName: string; agentId?: string; botToken?: string };
 type PendingPhotoGroup = {
   ctx: Context;
   userName: string;
+  route?: BotRoute;
   caption: string | null;
   downloads: Promise<DownloadedPhoto | null>[];
   timer: ReturnType<typeof setTimeout>;
@@ -20,7 +22,7 @@ const PHOTO_GROUP_SETTLE_MS = 750;
 const pendingPhotoGroups = new Map<string, PendingPhotoGroup>();
 
 /** Download photo to user's workspace tmp dir. Returns {hostPath, containerPath}. */
-async function downloadPhoto(ctx: Context, userName: string): Promise<DownloadedPhoto | null> {
+async function downloadPhoto(ctx: Context, userName: string, botToken?: string): Promise<DownloadedPhoto | null> {
   const photo = ctx.message?.photo;
   if (!photo || photo.length === 0) return null;
 
@@ -28,7 +30,7 @@ async function downloadPhoto(ctx: Context, userName: string): Promise<Downloaded
   const file = await ctx.api.getFile(largest.file_id);
   if (!file.file_path) return null;
 
-  const url = `${getTelegramApiBase()}/file/bot${getRuntime().botToken}/${file.file_path}`;
+  const url = `${getTelegramApiBase()}/file/bot${botToken || getRuntime().botToken}/${file.file_path}`;
   const response = await fetch(url);
   if (!response.ok) return null;
 
@@ -80,6 +82,7 @@ async function processPhotoMessage(
   ctx: Context,
   brain: Brain,
   userName: string,
+  route: BotRoute | undefined,
   downloads: Promise<DownloadedPhoto | null>[],
   caption: string | null,
 ): Promise<void> {
@@ -98,6 +101,7 @@ async function processPhotoMessage(
       getPhotoPrompt(caption, photoPaths),
       userName,
       photoPaths,
+      route?.agentId,
     );
   } finally {
     stopTyping();
@@ -115,10 +119,10 @@ async function flushPhotoGroup(key: string, brain: Brain): Promise<void> {
   const group = pendingPhotoGroups.get(key);
   if (!group) return;
   pendingPhotoGroups.delete(key);
-  await processPhotoMessage(group.ctx, brain, group.userName, group.downloads, group.caption);
+  await processPhotoMessage(group.ctx, brain, group.userName, group.route, group.downloads, group.caption);
 }
 
-function queuePhotoGroup(ctx: Context, brain: Brain, userName: string): void {
+function queuePhotoGroup(ctx: Context, brain: Brain, userName: string, route?: BotRoute): void {
   const key = getPhotoGroupKey(ctx);
   if (!key) return;
 
@@ -127,7 +131,7 @@ function queuePhotoGroup(ctx: Context, brain: Brain, userName: string): void {
   if (existing) {
     existing.ctx = ctx;
     existing.caption = existing.caption || caption;
-    existing.downloads.push(downloadPhoto(ctx, userName));
+    existing.downloads.push(downloadPhoto(ctx, userName, route?.botToken));
     clearTimeout(existing.timer);
     existing.timer = setTimeout(() => {
       void flushPhotoGroup(key, brain);
@@ -138,8 +142,9 @@ function queuePhotoGroup(ctx: Context, brain: Brain, userName: string): void {
   pendingPhotoGroups.set(key, {
     ctx,
     userName,
+    route,
     caption,
-    downloads: [downloadPhoto(ctx, userName)],
+    downloads: [downloadPhoto(ctx, userName, route?.botToken)],
     timer: setTimeout(() => {
       void flushPhotoGroup(key, brain);
     }, PHOTO_GROUP_SETTLE_MS),
@@ -157,9 +162,10 @@ export async function handleBrainMessage(
   ctx: Context,
   brain: Brain,
   userMessage: string,
+  route?: BotRoute,
 ): Promise<void> {
   const stopTyping = keepTyping(ctx);
-  const userName = getUserName(ctx.from?.id ?? 0);
+  const userName = route?.userName || getUserName(ctx.from?.id ?? 0);
   appendUserActivity(config.dataDir, {
     timestamp: new Date().toISOString(),
     userName,
@@ -168,7 +174,7 @@ export async function handleBrainMessage(
     summary: `Received message: ${userMessage.replace(/\s+/g, " ").trim().slice(0, 120)}`,
   });
   try {
-    await brain.think(userMessage, userName);
+    await brain.think(userMessage, userName, undefined, route?.agentId);
   } finally {
     stopTyping();
   }
@@ -177,24 +183,26 @@ export async function handleBrainMessage(
 export function registerMessageHandler(
   bot: Bot,
   brain: Brain,
+  route?: BotRoute,
 ): void {
   bot.on("message:text", (ctx) => {
-    handleBrainMessage(ctx, brain, ctx.message.text);
+    handleBrainMessage(ctx, brain, ctx.message.text, route);
   });
 
   // Inline button callbacks
   bot.on("callback_query:data", (ctx) => {
-    const userName = getUserName(ctx.from.id);
+    const userName = route?.userName || getUserName(ctx.from.id);
     const data = ctx.callbackQuery.data;
     ctx.answerCallbackQuery();
-    handleBrainMessage(ctx, brain, data);
+    handleBrainMessage(ctx, brain, data, route ? { ...route, userName } : undefined);
   });
 
   bot.on("message:photo", async (ctx) => {
-    const userName = getUserName(ctx.from?.id ?? 0);
+    const userName = route?.userName || getUserName(ctx.from?.id ?? 0);
+    const scopedRoute = route ? { ...route, userName } : undefined;
 
     if (ctx.message.media_group_id) {
-      queuePhotoGroup(ctx, brain, userName);
+      queuePhotoGroup(ctx, brain, userName, scopedRoute);
       return;
     }
 
@@ -202,7 +210,8 @@ export function registerMessageHandler(
       ctx,
       brain,
       userName,
-      [downloadPhoto(ctx, userName)],
+      scopedRoute,
+      [downloadPhoto(ctx, userName, route?.botToken)],
       normalizeCaption(ctx.message.caption),
     );
   });

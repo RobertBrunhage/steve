@@ -2,6 +2,7 @@ import type { ActivityEntry } from "../../activity.js";
 import type { AttachedBrowserConfig } from "../../browser/types.js";
 import type { BrowserCompanionStatus } from "../../browser/companion-status.js";
 import type { UserAppSecretSummary } from "../../secrets.js";
+import type { KellixUserAgent } from "../../user-agents.js";
 import {
   Badge,
   Button,
@@ -34,6 +35,8 @@ export interface RenderUserOptions {
   attachedBrowser?: AttachedBrowserConfig | null;
   remoteBrowserAvailable?: boolean;
   browserCompanion?: BrowserCompanionStatus;
+  kellixAgents?: KellixUserAgent[];
+  defaultAgentId?: string;
 }
 
 type ModelOption = { id: string; name: string; variants?: string[] };
@@ -463,6 +466,72 @@ export function renderUserAgentPage(name: string, ocStatus: string, ocUrl: strin
     `,
   });
 
+  const agents = options?.kellixAgents || [];
+  const agentsSection = Section({
+    title: "Kellix agents",
+    description: "Create specialist agents with their own persona, goal, sessions, and scheduled tasks. Existing users keep the default Kellix agent.",
+    className: "mb-6",
+    children: `
+      <div class="space-y-2 mb-4">
+        ${agents.map((agent) => `
+          <div class="border border-border rounded-lg p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-sm font-medium text-neutral-900">${escapeHtml(agent.name)}</span>
+                <code class="text-xs text-neutral-400">${escapeHtml(agent.id)}</code>
+                ${agent.id === (options?.defaultAgentId || "kellix") ? Badge({ tone: "ok", children: "Default" }) : ""}
+              </div>
+              <p class="text-xs text-neutral-400 mt-1">${escapeHtml(agent.goal || "No goal set yet.")}</p>
+              <p class="text-xs text-neutral-400 mt-1">Telegram: ${agent.channels?.telegram?.chatId ? `chat ${escapeHtml(agent.channels.telegram.chatId)}` : "uses default chat unless an agent bot is configured"}</p>
+            </div>
+            <form method="POST" action="/users/${slug}/agents/${encodeURIComponent(agent.id)}" class="grid grid-cols-1 sm:grid-cols-[140px_minmax(0,1fr)_auto] gap-2 sm:items-end">
+              ${hiddenCsrf(csrfToken)}
+              <input type="text" name="name" class="${inputClass}" value="${escapeHtml(agent.name)}" required>
+              <input type="text" name="goal" class="${inputClass}" value="${escapeHtml(agent.goal)}" required>
+              ${Button({ variant: "secondary", size: "sm", children: "Save" })}
+            </form>
+            <form method="POST" action="/users/${slug}/agents/${encodeURIComponent(agent.id)}/telegram" class="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_150px_auto] gap-2 sm:items-end">
+              ${hiddenCsrf(csrfToken)}
+              <input type="password" name="bot_token" class="${inputClass}" placeholder="Bot token (blank keeps current)">
+              <input type="text" name="chat_id" class="${inputClass}" value="${escapeHtml(agent.channels?.telegram?.chatId || "")}" placeholder="Chat ID">
+              ${Button({ variant: "secondary", size: "sm", children: "Save Telegram" })}
+            </form>
+            <div class="flex gap-2">
+              ${agent.id !== (options?.defaultAgentId || "kellix") ? `
+              <form method="POST" action="/users/${slug}/agents/${encodeURIComponent(agent.id)}/default">
+                ${hiddenCsrf(csrfToken)}
+                ${Button({ variant: "secondary", size: "sm", children: "Set default" })}
+              </form>
+              ` : ""}
+              ${agent.id !== "kellix" ? `
+              <form method="POST" action="/users/${slug}/agents/${encodeURIComponent(agent.id)}/delete" onsubmit="return confirm('Delete ${escapeHtml(agent.name)}?')">
+                ${hiddenCsrf(csrfToken)}
+                ${Button({ variant: "danger", size: "sm", children: "Delete" })}
+              </form>
+              ` : ""}
+            </div>
+          </div>
+        `).join("")}
+      </div>
+      <form method="POST" action="/users/${slug}/agents" class="grid grid-cols-1 lg:grid-cols-[180px_220px_minmax(0,1fr)_auto] gap-3 items-end">
+        ${hiddenCsrf(csrfToken)}
+        <div>
+          <label for="agent_id" class="block text-xs text-neutral-500 mb-1">ID</label>
+          <input id="agent_id" name="id" class="${inputClass}" placeholder="sysadmin" required>
+        </div>
+        <div>
+          <label for="agent_name" class="block text-xs text-neutral-500 mb-1">Name</label>
+          <input id="agent_name" name="name" class="${inputClass}" placeholder="Sysadmin" required>
+        </div>
+        <div>
+          <label for="agent_goal" class="block text-xs text-neutral-500 mb-1">Goal</label>
+          <input id="agent_goal" name="goal" class="${inputClass}" placeholder="Watch my cluster and escalate when health checks fail" required>
+        </div>
+        ${Button({ variant: "primary", children: "Create" })}
+      </form>
+    `,
+  });
+
   const sessionsSection = ocUrl ? `
     <div class="bg-white border border-border rounded-lg overflow-hidden mb-6">
       <div class="flex items-center justify-between px-5 py-3 border-b border-border">
@@ -494,6 +563,7 @@ export function renderUserAgentPage(name: string, ocStatus: string, ocUrl: strin
 
   return renderUserFrame(name, ocStatus, csrfToken, "agent", `
     ${runtimeSection}
+    ${agentsSection}
     ${modelSection}
     ${sessionsSection}
     ${logsSection}

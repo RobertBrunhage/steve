@@ -19,6 +19,7 @@ import { syncUserAgentsRuntime } from "./agents.js";
 import { kellixDir, config, getUserSkillsDir } from "./config.js";
 import { getTelegramBotToken } from "./secrets.js";
 import { syncBundledSkillsForUser, validateProjectScriptsManifest, validateSkillDirectories } from "./skills.js";
+import { readUserAgentsConfig, writeUserAgentsConfig, type KellixUserAgent } from "./user-agents.js";
 import { Vault, readKeyfile, initializeVault, hasKeyfile } from "./vault/index.js";
 import { migrateUsersVaultKey, readUsersFromVault, toUserSlug, type UsersMap, uniqueUserSlugs, writeUserManifest } from "./users.js";
 import { migrateLegacyAdminAuthKey } from "./web/auth.js";
@@ -73,6 +74,43 @@ export function setupUserWorkspace(userName: string) {
       cpSync(join(pluginSrc, file), join(pluginDest, file));
     }
   }
+
+  const userAgents = readUserAgentsConfig(userName);
+  writeUserAgentsConfig(userName, userAgents);
+  for (const agent of userAgents.agents) {
+    const agentRoot = join(userDir, "agents", agent.id);
+    for (const sub of ["memory", "memory/daily", "skills", "jobs", ".opencode-data"]) {
+      mkdirSync(join(agentRoot, sub), { recursive: true });
+    }
+  }
+}
+
+function renderOpenCodeAgentFile(userName: string, agent: KellixUserAgent): string {
+  const description = agent.id === APP_SLUG
+    ? `${APP_NAME} is a personal household assistant. Use this agent for all conversations.`
+    : `${agent.name}: ${agent.goal || "Specialized Kellix agent."}`;
+
+  return `---
+description: >-
+  ${description}
+mode: primary
+tools:
+  '*': true
+  webfetch: true
+  bash: true
+permissions:
+  - permission: allow
+---
+
+Current Kellix user: ${userName}
+Current Kellix agent: ${agent.id}
+Agent name: ${agent.name}
+Agent goal: ${agent.goal || "Use the shared Kellix instructions and help the user."}
+Agent workspace: agents/${agent.id}
+Use agents/${agent.id}/memory for this agent's private memory and agents/${agent.id}/skills for agent-specific skills.
+Use memory/ and skills/ only for user-level shared context.
+When calling send_message or send_file, always use this exact userName: ${userName} and agentId: ${agent.id}
+`;
 }
 
 export function generateRuntimeConfig(users: UsersMap) {
@@ -123,43 +161,18 @@ export function generateRuntimeConfig(users: UsersMap) {
     const userDir = join(config.usersDir, toUserSlug(userName));
     mkdirSync(userDir, { recursive: true });
 
-    const agentMd = `---
-description: >-
-  Kellix is a personal household assistant. Use this agent for all conversations.
-mode: primary
-tools:
-  task: false
-  todowrite: false
-  todoread: false
-  webfetch: true
-  skill: false
-  bash: true
-permissions:
-  - permission: external_directory
-    pattern: "*"
-    action: allow
-  - permission: question
-    action: deny
-    pattern: "*"
-  - permission: plan_enter
-    action: deny
-    pattern: "*"
-  - permission: plan_exit
-    action: deny
-    pattern: "*"
----
-
-Current Kellix user: ${userName}
-When calling send_message, always use this exact userName: ${userName}
-`;
-
     const opencodePath = join(userDir, "opencode.json");
     const nextOpenCodeConfig = mergeKellixOpenCodeDefaults(readExistingOpenCodeConfig(opencodePath));
     writeFileSync(opencodePath, `${JSON.stringify(nextOpenCodeConfig, null, 2)}\n`, "utf-8");
 
     const agentDir = join(userDir, ".opencode", "agents");
     mkdirSync(agentDir, { recursive: true });
-    writeFileSync(join(agentDir, OPENCODE_AGENT_FILE), agentMd, "utf-8");
+    const userAgents = readUserAgentsConfig(userName);
+    writeUserAgentsConfig(userName, userAgents);
+    for (const agent of userAgents.agents) {
+      const fileName = agent.id === APP_SLUG ? OPENCODE_AGENT_FILE : `${agent.id}.md`;
+      writeFileSync(join(agentDir, fileName), renderOpenCodeAgentFile(userName, agent), "utf-8");
+    }
     const legacyAgentPath = join(agentDir, LEGACY_OPENCODE_AGENT_FILE);
     if (existsSync(legacyAgentPath)) {
       unlinkSync(legacyAgentPath);

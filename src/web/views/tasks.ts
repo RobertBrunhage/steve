@@ -30,6 +30,7 @@ function renderJobRow(entry: ScheduledEntry & { nextRunAt: string | null }, csrf
       <form method="POST" action="/jobs/toggle" class="inline">
         ${hiddenCsrf(csrfToken)}
         <input type="hidden" name="user" value="${escapeHtml(entry.userName)}">
+        <input type="hidden" name="agent" value="${escapeHtml(entry.agentId || "kellix")}">
         <input type="hidden" name="id" value="${escapeHtml(entry.id)}">
         <input type="hidden" name="disabled" value="${entry.disabled ? "false" : "true"}">
         ${Button({ variant: "secondary", size: "sm", children: entry.disabled ? "Resume" : "Pause" })}
@@ -37,6 +38,7 @@ function renderJobRow(entry: ScheduledEntry & { nextRunAt: string | null }, csrf
       <form method="POST" action="/jobs/delete" class="inline" onsubmit="return confirm('Delete ${escapeHtml(entry.name)}?')">
         ${hiddenCsrf(csrfToken)}
         <input type="hidden" name="user" value="${escapeHtml(entry.userName)}">
+        <input type="hidden" name="agent" value="${escapeHtml(entry.agentId || "kellix")}">
         <input type="hidden" name="id" value="${escapeHtml(entry.id)}">
         ${Button({ variant: "danger", size: "sm", children: "Delete" })}
       </form>
@@ -49,6 +51,8 @@ function renderJobRow(entry: ScheduledEntry & { nextRunAt: string | null }, csrf
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2 flex-wrap mb-3">
             <a href="/users/${slug}" class="text-sm font-medium text-neutral-900 hover:text-emerald-600 transition-colors capitalize">${escapeHtml(entry.userName)}</a>
+            <span class="text-neutral-300">/</span>
+            <code class="text-xs text-neutral-400">${escapeHtml(entry.agentId || "kellix")}</code>
             <span class="text-neutral-300">/</span>
             <span class="text-sm text-neutral-600">${escapeHtml(entry.name)}</span>
             ${jobStatusBadge(entry)}
@@ -75,6 +79,7 @@ export interface RenderJobsPageOptions {
   filterStatus: JobsFilterStatus;
   filterMember: string;        // "all" or a member name
   memberNames: string[];       // for the member filter chips
+  memberAgents?: Array<{ userName: string; agents: Array<{ id: string; name: string }> }>;
 }
 
 function jobsFilterChip(label: string, href: string, active: boolean): string {
@@ -133,9 +138,35 @@ export function renderJobsPage(opts: RenderJobsPageOptions): string {
       })
     : `<div class="space-y-3">${entries.map((e) => renderJobRow(e, csrfToken)).join("")}</div>`;
 
+  const agentOptions = (opts.memberAgents || []).flatMap((member) => member.agents.map((agent) => ({
+    value: `${member.userName}:${agent.id}`,
+    label: `${member.userName} / ${agent.name}`,
+  })));
+
+  const createForm = agentOptions.length > 0 ? `
+    <div class="bg-white border border-border rounded-lg p-4 mb-6">
+      <h2 class="text-sm font-medium text-neutral-900 mb-1">Create task</h2>
+      <p class="text-xs text-neutral-400 mb-4">Create or update a scheduled task for a specific agent.</p>
+      <form method="POST" action="/jobs" class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        ${hiddenCsrf(csrfToken)}
+        <select name="target" class="border border-border rounded-md px-3 py-2 text-sm" required>
+          ${agentOptions.map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join("")}
+        </select>
+        <input name="id" class="border border-border rounded-md px-3 py-2 text-sm" placeholder="Task ID, e.g. cluster-health" required>
+        <input name="name" class="border border-border rounded-md px-3 py-2 text-sm" placeholder="Name" required>
+        <input name="cron" class="border border-border rounded-md px-3 py-2 text-sm" placeholder="Cron, e.g. */5 * * * *">
+        <input name="at" class="border border-border rounded-md px-3 py-2 text-sm" placeholder="One-off ISO time instead of cron">
+        <input name="timezone" class="border border-border rounded-md px-3 py-2 text-sm" placeholder="Timezone optional">
+        <textarea name="prompt" class="border border-border rounded-md px-3 py-2 text-sm lg:col-span-2" rows="3" placeholder="Task instructions" required></textarea>
+        <div class="lg:col-span-2">${Button({ variant: "primary", children: "Save task" })}</div>
+      </form>
+    </div>
+  ` : "";
+
   return layout("Tasks", `
     ${nav(csrfToken, "tasks")}
     ${PageHeader({ title: "Tasks", subtitle: "Scheduled tasks across all members. Pause or remove them as needed." })}
+    ${createForm}
     ${filterBar}
     ${body}
   `, { width: "app" });

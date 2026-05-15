@@ -2,6 +2,7 @@ import * as p from "@clack/prompts";
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/client";
 import { APP_NAME, APP_SLUG, LEGACY_APP_NAME } from "../brand.js";
 import { getRuntime, getTelegramApiBase } from "../config.js";
+import { resolveUserAgentId } from "../user-agents.js";
 import { getTelegramChatId, toUserSlug } from "../users.js";
 
 type PromptPart =
@@ -51,10 +52,12 @@ export class Brain {
     userMessage: string,
     userName: string,
     files?: string[],
+    agentId?: string,
   ): Promise<void> {
-    const queueKey = toUserSlug(userName);
+    const resolvedAgentId = resolveUserAgentId(userName, agentId);
+    const queueKey = `${toUserSlug(userName)}:${resolvedAgentId}`;
     const prev = this.queues.get(queueKey) ?? Promise.resolve();
-    const current = prev.then(() => this.process(userMessage, userName, files));
+    const current = prev.then(() => this.process(userMessage, userName, files, resolvedAgentId));
     this.queues.set(queueKey, current);
     await current;
   }
@@ -70,10 +73,19 @@ export class Brain {
     return this.clients.get(name)!;
   }
 
-  private async findExistingSessionId(oc: OpencodeClient, userName: string): Promise<string | null> {
+  private getSessionTitle(userName: string, agentId: string): string {
+    return agentId === APP_SLUG ? `${APP_NAME} - ${userName}` : `${APP_NAME} ${agentId} - ${userName}`;
+  }
+
+  private getSessionKey(userName: string, agentId: string): string {
+    return `${toUserSlug(userName)}:${agentId}`;
+  }
+
+  private async findExistingSessionId(oc: OpencodeClient, userName: string, agentId: string): Promise<string | null> {
     try {
       const list = await oc.session.list({});
-      const titles = new Set([`${APP_NAME} - ${userName}`, `${LEGACY_APP_NAME} - ${userName}`]);
+      const titles = new Set([this.getSessionTitle(userName, agentId)]);
+      if (agentId === APP_SLUG) titles.add(`${LEGACY_APP_NAME} - ${userName}`);
       const existing = (list.data as any[])?.find(
         (s: any) => titles.has(String(s.title || "")) && !s.time?.archived,
       );
@@ -83,36 +95,36 @@ export class Brain {
     }
   }
 
-  private async createSessionId(oc: OpencodeClient, userName: string): Promise<string> {
-    const res = await oc.session.create({ body: { title: `${APP_NAME} - ${userName}` } });
+  private async createSessionId(oc: OpencodeClient, userName: string, agentId: string): Promise<string> {
+    const res = await oc.session.create({ body: { title: this.getSessionTitle(userName, agentId) } });
     if (!res.data?.id) {
       throw new Error("Failed to create session");
     }
     return res.data.id;
   }
 
-  private async getOrCreateSessionId(oc: OpencodeClient, userName: string): Promise<string> {
-    const key = toUserSlug(userName);
+  private async getOrCreateSessionId(oc: OpencodeClient, userName: string, agentId: string): Promise<string> {
+    const key = this.getSessionKey(userName, agentId);
     const cached = this.sessions.get(key);
     if (cached) return cached;
 
-    const existing = await this.findExistingSessionId(oc, userName);
+    const existing = await this.findExistingSessionId(oc, userName, agentId);
     if (existing) {
       this.sessions.set(key, existing);
       p.log.info(`Resumed session for ${userName}`);
       return existing;
     }
 
-    const created = await this.createSessionId(oc, userName);
+    const created = await this.createSessionId(oc, userName, agentId);
     this.sessions.set(key, created);
     return created;
   }
 
-  private async getPrimarySessionId(oc: OpencodeClient, userName: string): Promise<string | null> {
-    const key = toUserSlug(userName);
+  private async getPrimarySessionId(oc: OpencodeClient, userName: string, agentId: string): Promise<string | null> {
+    const key = this.getSessionKey(userName, agentId);
     const cached = this.sessions.get(key);
     if (cached) return cached;
-    const existing = await this.findExistingSessionId(oc, userName);
+    const existing = await this.findExistingSessionId(oc, userName, agentId);
     if (existing) {
       this.sessions.set(key, existing);
       return existing;
@@ -135,10 +147,10 @@ export class Brain {
     return parts;
   }
 
-  private async promptSession(oc: OpencodeClient, sessionId: string, parts: PromptPart[]) {
+  private async promptSession(oc: OpencodeClient, sessionId: string, parts: PromptPart[], agentId: string) {
     return oc.session.prompt({
       path: { id: sessionId },
-      body: { parts, agent: APP_SLUG },
+      body: { parts, agent: agentId },
     });
   }
 
@@ -153,19 +165,19 @@ export class Brain {
       : undefined;
   }
 
-  private async promptWithSessionRetry(oc: OpencodeClient, userName: string, parts: PromptPart[]) {
-    const key = toUserSlug(userName);
+  private async promptWithSessionRetry(oc: OpencodeClient, userName: string, parts: PromptPart[], agentId: string) {
+    const key = this.getSessionKey(userName, agentId);
 
     for (let attempt = 0; attempt < 2; attempt++) {
       const sessionId = attempt === 0
-        ? await this.getOrCreateSessionId(oc, userName)
-        : await this.createSessionId(oc, userName);
+        ? await this.getOrCreateSessionId(oc, userName, agentId)
+        : await this.createSessionId(oc, userName, agentId);
 
       if (attempt > 0) {
         this.sessions.set(key, sessionId);
       }
 
-      const res = await this.promptSession(oc, sessionId, parts);
+      const res = await this.promptSession(oc, sessionId, parts, agentId);
       if (!res.error) {
         return res;
       }
@@ -186,15 +198,16 @@ export class Brain {
     userMessage: string,
     userName: string,
     files?: string[],
+    agentId = APP_SLUG,
   ): Promise<void> {
     try {
-      p.log.step(`${userName} → thinking...`);
+      p.log.step(`${userName}/${agentId} → thinking...`);
 
       const oc = this.getClient(userName);
       const parts = this.buildPromptParts(userMessage, files);
-      await this.promptWithSessionRetry(oc, userName, parts);
+      await this.promptWithSessionRetry(oc, userName, parts, agentId);
 
-      p.log.success(`${userName} → replied`);
+      p.log.success(`${userName}/${agentId} → replied`);
     } catch (error) {
       p.log.error(`${userName} → failed: ${error instanceof Error ? error.message : error}`);
       await sendFallback(
@@ -208,23 +221,26 @@ export class Brain {
   async thinkIsolated(
     userMessage: string,
     userName: string,
+    agentId?: string,
   ): Promise<void> {
+    const resolvedAgentId = resolveUserAgentId(userName, agentId);
     try {
       const oc = this.getClient(userName);
-      const sessionId = await this.createSessionId(oc, `${userName} (isolated)`);
-      const res = await this.promptSession(oc, sessionId, this.buildPromptParts(userMessage));
+      const sessionId = await this.createSessionId(oc, `${userName} (isolated)`, resolvedAgentId);
+      const res = await this.promptSession(oc, sessionId, this.buildPromptParts(userMessage), resolvedAgentId);
 
       if (res.error) {
         throw new Error(`OpenCode error: ${JSON.stringify(res.error)}`);
       }
     } catch (error) {
-      p.log.error(`Isolated task failed for ${userName}: ${error instanceof Error ? error.message : error}`);
+      p.log.error(`Isolated task failed for ${userName}/${resolvedAgentId}: ${error instanceof Error ? error.message : error}`);
       throw error;
     }
   }
 
-  async compactPrimarySession(userName: string): Promise<boolean> {
-    const key = toUserSlug(userName);
+  async compactPrimarySession(userName: string, agentId?: string): Promise<boolean> {
+    const resolvedAgentId = resolveUserAgentId(userName, agentId);
+    const key = this.getSessionKey(userName, resolvedAgentId);
     const oc = this.getClient(userName);
     const model = await this.getConfiguredModel(oc);
 
@@ -233,7 +249,7 @@ export class Brain {
     }
 
     for (let attempt = 0; attempt < 2; attempt++) {
-      const sessionId = await this.getPrimarySessionId(oc, userName);
+      const sessionId = await this.getPrimarySessionId(oc, userName, resolvedAgentId);
       if (!sessionId) {
         return false;
       }

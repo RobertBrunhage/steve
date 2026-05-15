@@ -10,6 +10,7 @@ import { toUserSlug } from "./users.js";
 
 export interface Job {
   id: string;
+  agentId?: string;
   name: string;
   prompt: string;
   cron?: string;
@@ -30,6 +31,7 @@ interface UserJobs {
 export interface ScheduledEntry {
   kind: "job" | "heartbeat";
   userName: string;
+  agentId?: string;
   id: string;
   name: string;
   cron?: string;
@@ -83,26 +85,27 @@ function mergeJobMetadata(existing: Job | undefined, next: Job): Job {
 export function upsertUserJob(userName: string, job: Job): void {
   const user = toUserSlug(userName);
   const jobs = loadUserJobs(user);
-  const existing = jobs.find((entry) => entry.id === job.id);
-  const nextJobs = jobs.filter((entry) => entry.id !== job.id);
+  const jobAgentId = job.agentId || "kellix";
+  const existing = jobs.find((entry) => entry.id === job.id && (entry.agentId || "kellix") === jobAgentId);
+  const nextJobs = jobs.filter((entry) => entry.id !== job.id || (entry.agentId || "kellix") !== jobAgentId);
   nextJobs.push(mergeJobMetadata(existing, job));
   saveUserJobs(user, nextJobs);
 }
 
-export function removeUserJob(userName: string, id: string): boolean {
+export function removeUserJob(userName: string, id: string, agentId?: string): boolean {
   const user = toUserSlug(userName);
   const jobs = loadUserJobs(user);
-  const filtered = jobs.filter((entry) => entry.id !== id);
+  const filtered = jobs.filter((entry) => entry.id !== id || (agentId && (entry.agentId || "kellix") !== agentId));
   saveUserJobs(user, filtered);
   return filtered.length < jobs.length;
 }
 
-export function setUserJobDisabled(userName: string, id: string, disabled: boolean): boolean {
+export function setUserJobDisabled(userName: string, id: string, disabled: boolean, agentId?: string): boolean {
   const user = toUserSlug(userName);
   const jobs = loadUserJobs(user);
   let updated = false;
   const nextJobs = jobs.map((job) => {
-    if (job.id !== id) return job;
+    if (job.id !== id || (agentId && (job.agentId || "kellix") !== agentId)) return job;
     updated = true;
     return { ...job, disabled };
   });
@@ -179,17 +182,18 @@ export function getScheduledEntryNextRunAt(entry: Pick<ScheduledEntry, "cron" | 
   }
 }
 
-function updateJobRunState(userName: string, jobId: string, patch: Partial<Job>): void {
+function updateJobRunState(userName: string, job: Job, patch: Partial<Job>): void {
   const user = toUserSlug(userName);
   const jobs = loadUserJobs(user);
-  const nextJobs = jobs.map((job) => (job.id === jobId ? { ...job, ...patch } : job));
+  const agentId = job.agentId || "kellix";
+  const nextJobs = jobs.map((entry) => (entry.id === job.id && (entry.agentId || "kellix") === agentId ? { ...entry, ...patch } : entry));
   saveUserJobs(user, nextJobs);
 }
 
 async function fireJob(userName: string, job: Job, brain: Brain) {
-  p.log.step(`Job: "${job.name}" → ${userName}`);
+  p.log.step(`Job: "${job.name}" → ${userName}/${job.agentId || "kellix"}`);
   const startedAt = Date.now();
-  updateJobRunState(userName, job.id, {
+  updateJobRunState(userName, job, {
     lastRunAt: new Date(startedAt).toISOString(),
     lastStatus: undefined,
     lastError: undefined,
@@ -208,8 +212,9 @@ async function fireJob(userName: string, job: Job, brain: Brain) {
       await brain.thinkIsolated(
         `REMINDER: This scheduled reminder is firing right now. Do not create, change, or ask follow-up questions about scheduling. Carry out the reminder immediately by sending the user the message they should receive now. Reminder instructions: ${job.prompt}`,
         userName,
+        job.agentId,
       );
-      updateJobRunState(userName, job.id, {
+      updateJobRunState(userName, job, {
         lastRunAt: new Date(startedAt).toISOString(),
         lastStatus: "ok",
         lastError: undefined,
@@ -230,7 +235,7 @@ async function fireJob(userName: string, job: Job, brain: Brain) {
         await new Promise((r) => setTimeout(r, delay));
       } else {
         const message = err instanceof Error ? err.message : String(err);
-        updateJobRunState(userName, job.id, {
+        updateJobRunState(userName, job, {
           lastRunAt: new Date(startedAt).toISOString(),
           lastStatus: "error",
           lastError: message,
@@ -304,7 +309,7 @@ function checkOneOffs(allUserJobs: UserJobs[], brain: Brain) {
   for (const { userName, jobs } of allUserJobs) {
     for (const job of jobs) {
       if (!job.at) continue;
-      const key = `${userName}:${job.id}`;
+      const key = `${userName}:${job.agentId || "kellix"}:${job.id}`;
       if (firedOneOffs.has(key)) continue;
       const at = new Date(job.at).getTime();
       if (!isNaN(at) && at <= now) {
@@ -325,7 +330,7 @@ export function startScheduler(brain: Brain) {
     const compactionTimezone = getSystemTimezone();
 
     const fingerprint = allUserJobs
-      .flatMap(({ userName, jobs }) => jobs.map((j) => `${userName}:${j.id}:${j.cron || j.at}:${j.disabled ? "disabled" : "enabled"}`))
+      .flatMap(({ userName, jobs }) => jobs.map((j) => `${userName}:${j.agentId || "kellix"}:${j.id}:${j.cron || j.at}:${j.disabled ? "disabled" : "enabled"}`))
       .concat(heartbeatUsers.map((userName) => `heartbeat:${userName}`))
       .concat(compactionUsers.map((userName) => `compaction:${userName}:${compactionTimezone}`))
       .sort()
@@ -354,7 +359,7 @@ export function startScheduler(brain: Brain) {
               start: true,
               timeZone: job.timezone,
             });
-            activeJobs.set(`${userName}:${job.id}`, cronJob);
+            activeJobs.set(`${userName}:${job.agentId || "kellix"}:${job.id}`, cronJob);
             p.log.info(`Scheduled "${job.name}" for ${userName}`);
           } catch {
             p.log.warn(`Invalid cron "${job.cron}" for ${userName}/${job.id}`);

@@ -2,7 +2,8 @@ import type { Hono } from "hono";
 import { getHealth } from "../health.js";
 import { config, getKellixVersion, getSystemTimezone, getTelegramApiBase, isValidTimezone, refreshRuntimeConfigFromVault, writeSystemSettings } from "../config.js";
 import { getTelegramBotToken, listUserAppSecrets, setTelegramBotToken } from "../secrets.js";
-import { getScheduledEntryNextRunAt, listScheduledEntries, removeUserJob, setUserJobDisabled } from "../scheduler.js";
+import { getScheduledEntryNextRunAt, listScheduledEntries, removeUserJob, setUserJobDisabled, upsertUserJob } from "../scheduler.js";
+import { normalizeAgentId, readUserAgentsConfig } from "../user-agents.js";
 import { getTelegramChatId, readUsersFromVault } from "../users.js";
 import { readUserActivity } from "../activity.js";
 import { renderHome, renderJobsPage, renderSettings, type JobsFilterStatus, type MemberSummary } from "./views.js";
@@ -130,7 +131,42 @@ export function registerSecretsRoutes(app: Hono, deps: WebRouteDeps) {
       filterStatus,
       filterMember,
       memberNames,
+      memberAgents: Object.keys(readUsersFromVault(deps.getVault())).sort().map((userName) => ({
+        userName,
+        agents: readUserAgentsConfig(userName).agents.map((agent) => ({ id: agent.id, name: agent.name })),
+      })),
     }));
+  });
+
+  app.post("/jobs", async (c) => {
+    const result = await deps.requireAdminForm(c);
+    if (result instanceof Response) return result;
+
+    const [rawUser, rawAgent] = String(result.body.target || "").split(":");
+    const validatedUser = validateUserSlug(rawUser || "");
+    if (!validatedUser.ok) return c.redirect("/jobs");
+    const agentId = normalizeAgentId(rawAgent || "kellix");
+    const id = String(result.body.id || "").trim();
+    const name = String(result.body.name || "").trim();
+    const prompt = String(result.body.prompt || "").trim();
+    const cron = String(result.body.cron || "").trim();
+    const at = String(result.body.at || "").trim();
+    const timezone = String(result.body.timezone || "").trim();
+    if (!id || !name || !prompt || (!cron && !at)) {
+      setFlash(c, "Task needs ID, name, prompt, and either cron or one-off time", "error");
+      return c.redirect("/jobs");
+    }
+    upsertUserJob(validatedUser.value, {
+      id,
+      agentId,
+      name,
+      prompt,
+      ...(cron ? { cron } : {}),
+      ...(at ? { at } : {}),
+      ...(timezone ? { timezone } : {}),
+    });
+    setFlash(c, "Task saved");
+    return c.redirect("/jobs");
   });
 
   app.post("/jobs/toggle", async (c) => {
@@ -141,9 +177,10 @@ export function registerSecretsRoutes(app: Hono, deps: WebRouteDeps) {
     if (!validatedUser.ok) return c.redirect("/jobs");
 
     const id = String(result.body.id || "");
+    const agentId = normalizeAgentId(String(result.body.agent || "kellix"));
     const disabled = String(result.body.disabled || "") === "true";
     if (id) {
-      setUserJobDisabled(validatedUser.value, id, disabled);
+      setUserJobDisabled(validatedUser.value, id, disabled, agentId);
       setFlash(c, disabled ? "Task paused" : "Task resumed");
     }
     return c.redirect("/jobs");
@@ -157,8 +194,9 @@ export function registerSecretsRoutes(app: Hono, deps: WebRouteDeps) {
     if (!validatedUser.ok) return c.redirect("/jobs");
 
     const id = String(result.body.id || "");
+    const agentId = normalizeAgentId(String(result.body.agent || "kellix"));
     if (id) {
-      removeUserJob(validatedUser.value, id);
+      removeUserJob(validatedUser.value, id, agentId);
       setFlash(c, "Task deleted");
     }
     return c.redirect("/jobs");
