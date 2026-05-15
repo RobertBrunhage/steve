@@ -76,6 +76,10 @@ export function getUserAgentSkillsDir(userName: string, agentId: string): string
   return join(getUserAgentDir(userName, agentId), "skills");
 }
 
+export function getUserAgentWorkflowsDir(userName: string, agentId: string): string {
+  return join(getUserAgentDir(userName, agentId), "workflows");
+}
+
 /** Runtime config set after vault is unlocked */
 export interface RuntimeConfig {
   botToken: string;

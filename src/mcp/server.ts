@@ -12,6 +12,16 @@ import type { Channel } from "../channels/index.js";
 import { config, getBaseUrl, getSystemTimezone } from "../config.js";
 import { loadUserAgentJobs, loadUserJobs, removeUserJob, type Job, upsertUserJob } from "../scheduler.js";
 import { toUserSlug } from "../users.js";
+import {
+  deleteWorkflow,
+  listInstances,
+  listWorkflows,
+  readInstance,
+  readWorkflow,
+  writeWorkflow,
+} from "../workflows/storage.js";
+import { validateWorkflowYaml, type WorkflowRunner } from "../workflows/runner.js";
+import { parseWorkflow } from "../workflows/parser.js";
 import { appendRunScriptAudit } from "./audit.js";
 import { buildScriptExecutionContext, redactSecrets } from "./script-security.js";
 
@@ -19,6 +29,7 @@ interface McpConfig {
   channel: Channel;
   projectRoot: string;
   dataDir: string;
+  engine?: WorkflowRunner;
 }
 
 /** Snapshot project scripts at startup (immutable, security-critical) */
@@ -258,6 +269,122 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
     }
 
     return { content: [{ type: "text", text: "Invalid action or missing parameters" }], isError: true };
+  });
+
+  server.registerTool("manage_workflows", {
+    description:
+      "Define and run Kellix workflows for the calling agent. Workflows are YAML files in agents/<id>/workflows/ that orchestrate shell, llm, approval, sub-workflow, and cross_agent steps. Validate yaml before defining; pass agentId to scope to the calling agent.",
+    inputSchema: {
+      action: z.enum(["list", "view", "run", "cancel", "resume", "validate", "define", "delete"]).describe("Action to perform"),
+      userName: z.string().describe("User the workflow belongs to"),
+      agentId: z.string().optional().describe("Agent id. Defaults to the user's kellix agent."),
+      name: z.string().optional().describe("Workflow name (for view/run/validate/define/delete)"),
+      yaml: z.string().optional().describe("Workflow YAML content (for validate/define)"),
+      args: z.record(z.string(), z.any()).optional().describe("Args to pass when running (for run)"),
+      instanceId: z.string().optional().describe("Instance id (for view/cancel/resume)"),
+      response: z.string().optional().describe("Approval response text (for resume)"),
+      approvedBy: z.string().optional().describe("Identity of approver (for resume)"),
+    },
+  }, async ({ action, userName, agentId, name, yaml: yamlText, args, instanceId, response, approvedBy }) => {
+    const user = toUserSlug(userName);
+    const agent = toUserSlug(agentId || APP_SLUG);
+    const engine = mcpConfig.engine;
+
+    if (action === "validate") {
+      if (!yamlText) return { content: [{ type: "text", text: "yaml is required for validate" }], isError: true };
+      const result = validateWorkflowYaml(yamlText);
+      const errorLines = result.errors.map((e) => {
+        const loc = e.line ? ` (line ${e.line}${e.column ? `, col ${e.column}` : ""})` : "";
+        const path = e.path ? ` [${e.path}]` : "";
+        return `  - ${e.severity ?? "error"}${loc}${path}: ${e.message}`;
+      });
+      const text = result.ok
+        ? errorLines.length > 0
+          ? `valid (with ${errorLines.length} warnings):\n${errorLines.join("\n")}`
+          : "valid"
+        : `invalid:\n${errorLines.join("\n")}`;
+      return { content: [{ type: "text", text }] };
+    }
+
+    if (action === "list") {
+      const defs = listWorkflows(user, agent).map((d) => ({
+        name: d.name,
+        description: d.description,
+        triggers: d.triggers,
+        stepCount: d.steps.length,
+      }));
+      const runs = listInstances(user, agent, { limit: 20 }).map((i) => ({
+        id: i.id,
+        workflowName: i.workflowName,
+        status: i.status,
+        startedAt: i.startedAt,
+        finishedAt: i.finishedAt,
+        currentStepId: i.currentStepId,
+      }));
+      return { content: [{ type: "text", text: JSON.stringify({ workflows: defs, runs }, null, 2) }] };
+    }
+
+    if (action === "view") {
+      if (instanceId) {
+        const inst = readInstance(user, agent, instanceId);
+        if (!inst) return { content: [{ type: "text", text: `instance ${instanceId} not found` }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(inst, null, 2) }] };
+      }
+      if (name) {
+        const def = readWorkflow(user, agent, name);
+        if (!def) return { content: [{ type: "text", text: `workflow ${name} not found` }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(def, null, 2) }] };
+      }
+      return { content: [{ type: "text", text: "view requires name or instanceId" }], isError: true };
+    }
+
+    if (action === "define") {
+      if (!name || !yamlText) return { content: [{ type: "text", text: "define requires name and yaml" }], isError: true };
+      const result = parseWorkflow(yamlText);
+      const fatal = result.errors.filter((e) => e.severity !== "warning");
+      if (fatal.length > 0) {
+        const lines = fatal.map((e) => {
+          const loc = e.line ? ` (line ${e.line}${e.column ? `, col ${e.column}` : ""})` : "";
+          return `  - ${loc} ${e.message}`;
+        });
+        return { content: [{ type: "text", text: `invalid yaml, refusing to write:\n${lines.join("\n")}` }], isError: true };
+      }
+      const path = writeWorkflow(user, agent, name, yamlText);
+      return { content: [{ type: "text", text: `defined: ${path}` }] };
+    }
+
+    if (action === "delete") {
+      if (!name) return { content: [{ type: "text", text: "delete requires name" }], isError: true };
+      const removed = deleteWorkflow(user, agent, name);
+      return { content: [{ type: "text", text: removed ? `deleted ${name}` : `${name} not found` }] };
+    }
+
+    if (action === "run") {
+      if (!engine) return { content: [{ type: "text", text: "workflow engine not available" }], isError: true };
+      if (!name) return { content: [{ type: "text", text: "run requires name" }], isError: true };
+      try {
+        const inst = await engine.runByName(user, agent, name, { args, triggerKind: "manual" });
+        return { content: [{ type: "text", text: JSON.stringify({ instanceId: inst.id, status: inst.status, output: inst.output }, null, 2) }] };
+      } catch (err) {
+        return { content: [{ type: "text", text: err instanceof Error ? err.message : String(err) }], isError: true };
+      }
+    }
+
+    if (action === "resume") {
+      if (!engine) return { content: [{ type: "text", text: "workflow engine not available" }], isError: true };
+      if (!instanceId) return { content: [{ type: "text", text: "resume requires instanceId" }], isError: true };
+      const ok = engine.resume({ instanceId, response, approvedBy });
+      return { content: [{ type: "text", text: ok ? "resumed" : "no waiting approval for that instance" }], isError: !ok };
+    }
+
+    if (action === "cancel") {
+      if (!engine) return { content: [{ type: "text", text: "workflow engine not available" }], isError: true };
+      if (!instanceId) return { content: [{ type: "text", text: "cancel requires instanceId" }], isError: true };
+      engine.cancel(instanceId);
+      return { content: [{ type: "text", text: "cancel requested" }] };
+    }
+
+    return { content: [{ type: "text", text: "unknown action" }], isError: true };
   });
 
   server.registerTool("get_secret_url", {

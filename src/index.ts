@@ -15,6 +15,7 @@ import { getComposeProject, reconcileUserAgents } from "./web/docker.js";
 import { setTelegramConnected, setVault } from "./health.js";
 import { TelegramChannel } from "./channels/telegram.js";
 import { registerChannel } from "./channels/index.js";
+import { createWorkflowEngine } from "./workflows/index.js";
 import { hasKeyfile } from "./vault/index.js";
 import { getAgentTelegramBotToken, getTelegramBotToken } from "./secrets.js";
 import { getAllowedTelegramIds, normalizeUsers, readUsersFromVault, type UsersMap, writeUserManifest } from "./users.js";
@@ -180,8 +181,20 @@ async function startServices(vault: Vault, botToken: string, users: UsersMap) {
   const channel = new TelegramChannel(botToken, vault);
   registerChannel(channel);
 
+  // Workflow engine — shared between the MCP server (for manage_workflows) and
+  // the scheduler (for cron-triggered workflow instances).
+  const brain = new Brain();
+  const engine = createWorkflowEngine({
+    brain,
+    channel,
+    vault,
+    dataDir: config.dataDir,
+    projectRoot: config.projectRoot,
+  });
+  engine.rehydrate();
+
   const mcpFactory = createMcpServerFactory(
-    { channel, projectRoot: config.projectRoot, dataDir: config.dataDir },
+    { channel, projectRoot: config.projectRoot, dataDir: config.dataDir, engine },
     vault,
   );
   await startMcpHttpServer(mcpFactory, config.mcpPort);
@@ -190,7 +203,6 @@ async function startServices(vault: Vault, botToken: string, users: UsersMap) {
   setVault(vault);
 
   // Start services
-  const brain = new Brain();
   setTelegramConnected(true);
 
   await Promise.all([
