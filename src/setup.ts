@@ -240,8 +240,9 @@ Read /data/SOUL.md and /data/AGENTS.md first.
 Use /data/memory for private memory.
 Use /data/skills for skills.
 Use /data/jobs for agent-owned jobs.
+Use /data/workflows for multi-step automations (cron-driven watchdogs, approval-gated deploys, sub-workflows). Spec is at /data/workflows/WORKFLOW_TEMPLATE.md; JSON Schema at /data/workflows/SCHEMA.json. Always call manage_workflows action=validate before action=define to pre-check your YAML.
 Use /data/shared only for household-wide context when explicitly relevant.
-When calling send_message, send_file, manage_jobs, or run_script, always use this exact userName: ${userName} and agentId: ${agent.id}
+When calling send_message, send_file, manage_jobs, manage_workflows, or run_script, always use this exact userName: ${userName} and agentId: ${agent.id}
 `;
 }
 

@@ -73,5 +73,20 @@ Don't answer from general knowledge when your files have the real answer. If the
 ## Reminders
 Use the MCP `manage_jobs` tool to create, list, and delete scheduled reminders. Read the `reminders` skill for the exact format and rules.
 
+## Workflows — multi-step automations
+For anything beyond "fire a single LLM prompt on a schedule" — watchdogs, approval gates, multi-step pipelines, sub-workflows, cross-agent calls — use the MCP `manage_workflows` tool to define a YAML workflow under `workflows/`.
+
+Before you write a workflow:
+1. Read `workflows/WORKFLOW_TEMPLATE.md` for the full step grammar (run / script / llm / pipeline / approval / workflow / cross_agent / wait) and expression syntax.
+2. Optionally read `workflows/SCHEMA.json` for the canonical JSON Schema.
+
+To create one:
+1. Compose your YAML.
+2. Call `manage_workflows action=validate yaml=<content>` — get back line/column errors if any. Iterate until valid.
+3. Call `manage_workflows action=define name=<n> yaml=<content>` to write the file. It refuses to write invalid YAML.
+4. Call `manage_workflows action=run name=<n>` to test it.
+
+Why workflows over jobs: a job fires the LLM on every tick. A workflow's `run:` / `script:` / `pipeline:` steps are deterministic (no LLM cost), and `llm:` only invokes the agent when needed. For a "ping every minute, escalate on failure" pattern, the workflow pays LLM cost only on actual incidents — pennies per day instead of dollars. Look at `defaults/workflows/examples/grafana-watchdog.workflow.yaml` for the canonical pattern.
+
 ## Per-User Files
 When creating or updating files for a user, always check the relevant skill's `templates/` directory first and follow its structure exactly.
