@@ -147,6 +147,7 @@ function parseTriggers(raw: unknown, ctx: Ctx): Trigger[] {
     if (typeof t.at === "string") trigger.at = t.at;
     if (typeof t.every === "string") trigger.every = t.every;
     if (typeof t.webhook === "string") trigger.webhook = t.webhook;
+    else if (t.webhook === true) trigger.webhook = "true";
     if (typeof t.event === "string") trigger.event = t.event;
     if (typeof t.timezone === "string") trigger.timezone = t.timezone;
     if (t.manual === true) trigger.manual = true;

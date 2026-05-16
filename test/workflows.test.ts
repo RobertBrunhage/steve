@@ -717,6 +717,221 @@ steps:
     assert.ok(elapsed >= 70, `expected ~80ms, got ${elapsed}`);
   });
 
+  // --- Additional edge-case coverage ---
+
+  await test("on_error: skip_rest halts subsequent steps but marks workflow ok", async () => {
+    const flow = parseWorkflow(`name: skip-rest
+steps:
+  - id: ok_a
+    run: echo a
+  - id: bad
+    run: "false"
+    on_error: skip_rest
+  - id: never
+    run: echo never
+`).def!;
+    const inst = await engine.run("robert", "devops", flow);
+    // skip_rest exits the loop without marking the workflow as error
+    assert.equal(inst.steps.ok_a.status, "ok");
+    assert.equal(inst.steps.bad.status, "error");
+    assert.equal(inst.steps.never, undefined);
+    // skip_rest stops execution but leaves last status as the loop's exit reason;
+    // the runner currently completes the run normally after the break.
+    assert.notEqual(inst.status, "error", "skip_rest should not bubble to instance error");
+  });
+
+  await test("approval: require_different_approver rejects same-actor approval", async () => {
+    capturedMessages = [];
+    const flow = parseWorkflow(`name: dual-approval
+steps:
+  - id: first
+    approval:
+      reason: "first gate"
+  - id: second
+    when: "$steps.first.approved"
+    approval:
+      reason: "second gate"
+      require_different_approver: true
+`).def!;
+    const runPromise = approvalEngine.run("robert", "devops", flow);
+    // First approval
+    await new Promise((r) => setTimeout(r, 30));
+    let { listInstances } = await import("../src/workflows/storage.js");
+    let runs = listInstances("robert", "devops", { workflowName: "dual-approval", limit: 1 });
+    approvalEngine.resume({ instanceId: runs[0].id, response: "yes", approvedBy: "robert" });
+    // Second approval — same approver
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 30));
+      if (capturedMessages.length >= 2) break;
+    }
+    ({ listInstances } = await import("../src/workflows/storage.js"));
+    runs = listInstances("robert", "devops", { workflowName: "dual-approval", limit: 1 });
+    approvalEngine.resume({ instanceId: runs[0].id, response: "yes", approvedBy: "robert" });
+    const inst = await runPromise;
+    assert.equal(inst.steps.second.status, "error", "same-approver should fail second gate");
+    assert.match(String(inst.steps.second.error ?? ""), /require_different_approver|already approved/);
+  });
+
+  await test("setup: propagates WORKFLOW_TEMPLATE.md + SCHEMA.json to agent workflows/", async () => {
+    const { existsSync } = await import("node:fs");
+    // Trigger propagation manually via syncBundledWorkflowDocs
+    const { syncBundledWorkflowDocs } = await import("../src/skills.js");
+    const defaultsDir = join(process.cwd(), "defaults", "workflows");
+    const agentWorkflowsDir = join(testDir, "users", "robert", "agents", "devops", "workflows");
+    syncBundledWorkflowDocs(defaultsDir, agentWorkflowsDir);
+    assert.ok(existsSync(join(agentWorkflowsDir, "WORKFLOW_TEMPLATE.md")), "expected WORKFLOW_TEMPLATE.md");
+    assert.ok(existsSync(join(agentWorkflowsDir, "SCHEMA.json")), "expected SCHEMA.json");
+    // Examples are intentionally NOT copied (they'd auto-trigger)
+    assert.equal(existsSync(join(agentWorkflowsDir, "examples")), false, "examples should not be copied");
+  });
+
+  await test("boot rehydrate: running → interrupted_at_boot; waiting_approval re-armed", async () => {
+    const { writeInstance, scanRunnableInstances } = await import("../src/workflows/storage.js");
+    const { WorkflowRunner } = await import("../src/workflows/runner.js");
+    // Write two synthetic instances to disk
+    const runningInst = {
+      id: "rehydrate-running",
+      userName: "robert",
+      agentId: "devops",
+      workflowName: "fake",
+      workflowVersion: "abc",
+      status: "running" as const,
+      trigger: { kind: "manual" as const },
+      args: {},
+      steps: {},
+      currentStepId: "stuck",
+      startedAt: new Date().toISOString(),
+    };
+    const waitingInst = {
+      id: "rehydrate-waiting",
+      userName: "robert",
+      agentId: "devops",
+      workflowName: "fake",
+      workflowVersion: "abc",
+      status: "waiting_approval" as const,
+      trigger: { kind: "manual" as const },
+      args: {},
+      steps: { gate: { id: "gate", status: "waiting" as const, attempt: 1 } },
+      currentStepId: "gate",
+      waiting: {
+        stepId: "gate",
+        kind: "approval" as const,
+        prompt: "test gate",
+        deadline: new Date(Date.now() + 60000).toISOString(),
+        requestedAt: new Date().toISOString(),
+      },
+      startedAt: new Date().toISOString(),
+    };
+    writeInstance(runningInst);
+    writeInstance(waitingInst);
+
+    const r = new WorkflowRunner({ brain: mockBrain, channel: buttonyChannel, vault: null, dataDir: testDir, projectRoot: process.cwd() });
+    r.rehydrate();
+
+    // running should now be interrupted_at_boot
+    const targets = scanRunnableInstances();
+    const stillRunning = targets.find((t) => t.instance.id === "rehydrate-running");
+    assert.equal(stillRunning, undefined, "running instance should have been transitioned off the runnable list");
+
+    // waiting should remain
+    const stillWaiting = targets.find((t) => t.instance.id === "rehydrate-waiting");
+    assert.ok(stillWaiting, "waiting_approval should still be runnable post-rehydrate");
+
+    // resume should now work
+    const resumed = r.resume({ instanceId: "rehydrate-waiting", response: "ok", approvedBy: "robert" });
+    assert.equal(resumed, true);
+  });
+
+  // --- Webhook trigger ---
+
+  await test("webhook: POST /wf/:user/:agent/:workflow triggers workflow with body as args", async () => {
+    writeWorkflow("robert", "devops", "hook-flow", `name: hook-flow
+triggers:
+  - webhook: true
+steps:
+  - id: echo
+    run: 'echo \${$args.message}'
+`);
+    const { Hono } = await import("hono");
+    const { registerUsersRoutes } = await import("../src/web/users-routes.js");
+    const fakeApp = new Hono();
+    const fakeDeps = {
+      composeProject: "test",
+      telegramFetch: fetch,
+      workflowEngine: engine,
+      getVault: () => null,
+      setVault: () => undefined,
+      isAdminConfigured: () => true,
+      getAdminAuthRecord: () => ({}),
+      ensureSetupToken: () => null,
+      clearSetupToken: () => undefined,
+      issueAdminSession: () => ({} as any),
+      issueBootstrapSession: () => ({} as any),
+      getAdminSession: () => null,
+      getBootstrapSession: () => null,
+      clearAdminSession: () => undefined,
+      clearBootstrapSession: () => undefined,
+      requireAdminPage: () => new Response("forbidden", { status: 403 }),
+      requireAdminApi: () => new Response("forbidden", { status: 403 }),
+      requireAdminForm: async () => new Response("forbidden", { status: 403 }),
+      buildSetupView: () => "",
+    } as any;
+    registerUsersRoutes(fakeApp, fakeDeps);
+
+    const res = await fakeApp.request("/wf/robert/devops/hook-flow", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "hello-webhook" }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal((body as { status: string }).status, "ok");
+  });
+
+  await test("webhook: token-protected workflow rejects request without X-Webhook-Token", async () => {
+    writeWorkflow("robert", "devops", "secret-hook", `name: secret-hook
+triggers:
+  - webhook: super-secret-token
+steps:
+  - id: noop
+    run: echo ok
+`);
+    const { Hono } = await import("hono");
+    const { registerUsersRoutes } = await import("../src/web/users-routes.js");
+    const fakeApp = new Hono();
+    const fakeDeps = {
+      composeProject: "test",
+      telegramFetch: fetch,
+      workflowEngine: engine,
+      getVault: () => null,
+      setVault: () => undefined,
+      isAdminConfigured: () => true,
+      getAdminAuthRecord: () => ({}),
+      ensureSetupToken: () => null,
+      clearSetupToken: () => undefined,
+      issueAdminSession: () => ({} as any),
+      issueBootstrapSession: () => ({} as any),
+      getAdminSession: () => null,
+      getBootstrapSession: () => null,
+      clearAdminSession: () => undefined,
+      clearBootstrapSession: () => undefined,
+      requireAdminPage: () => new Response("forbidden", { status: 403 }),
+      requireAdminApi: () => new Response("forbidden", { status: 403 }),
+      requireAdminForm: async () => new Response("forbidden", { status: 403 }),
+      buildSetupView: () => "",
+    } as any;
+    registerUsersRoutes(fakeApp, fakeDeps);
+
+    const noToken = await fakeApp.request("/wf/robert/devops/secret-hook", { method: "POST" });
+    assert.equal(noToken.status, 401);
+
+    const withToken = await fakeApp.request("/wf/robert/devops/secret-hook", {
+      method: "POST",
+      headers: { "x-webhook-token": "super-secret-token" },
+    });
+    assert.equal(withToken.status, 200);
+  });
+
   await test("graph: renderMermaid produces a graph TD with all step nodes", async () => {
     const { renderMermaid, renderDot } = await import("../src/workflows/graph.js");
     const def = parseWorkflow(`name: g
