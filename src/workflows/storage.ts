@@ -20,6 +20,47 @@ function getWaitingDir(userName: string, agentId: string): string {
   return join(getUserAgentWorkflowsDir(userName, agentId), ".waiting");
 }
 
+function getStateDir(userName: string, agentId: string): string {
+  return join(getUserAgentWorkflowsDir(userName, agentId), ".state");
+}
+
+function getFailureAlertStatePath(userName: string, agentId: string): string {
+  return join(getStateDir(userName, agentId), "failure-alerts.json");
+}
+
+export interface WorkflowFailureAlertState {
+  consecutiveErrors?: number;
+  consecutiveSkipped?: number;
+  lastFailureAlertAt?: string;
+}
+
+export function readWorkflowFailureAlertState(userName: string, agentId: string, workflowName: string): WorkflowFailureAlertState {
+  const path = getFailureAlertStatePath(userName, agentId);
+  if (!existsSync(path)) return {};
+  try {
+    const data = JSON.parse(readFileSync(path, "utf-8")) as Record<string, WorkflowFailureAlertState>;
+    const state = data[workflowName];
+    return state && typeof state === "object" ? state : {};
+  } catch {
+    return {};
+  }
+}
+
+export function writeWorkflowFailureAlertState(userName: string, agentId: string, workflowName: string, state: WorkflowFailureAlertState): void {
+  const path = getFailureAlertStatePath(userName, agentId);
+  let data: Record<string, WorkflowFailureAlertState> = {};
+  if (existsSync(path)) {
+    try {
+      data = JSON.parse(readFileSync(path, "utf-8")) as Record<string, WorkflowFailureAlertState>;
+    } catch {
+      data = {};
+    }
+  }
+  data[workflowName] = state;
+  mkdirSync(getStateDir(userName, agentId), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`, "utf-8");
+}
+
 function getWorkflowFilePath(userName: string, agentId: string, name: string): string {
   return join(getUserAgentWorkflowsDir(userName, agentId), `${name}${WORKFLOW_FILE_SUFFIX}`);
 }

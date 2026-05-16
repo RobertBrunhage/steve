@@ -41,6 +41,7 @@ export interface Trigger {
   webhook?: string;
   event?: string;
   timezone?: string;
+  staggerMs?: number;
 }
 
 export interface ArgDef {
@@ -53,6 +54,21 @@ export interface ApprovalDefaults {
   requiredApprover?: string;
   requireDifferentApprover?: boolean;
   timeoutMs?: number;
+}
+
+export interface FailureAlertPolicy {
+  /** Consecutive failed runs before alerting. Defaults to 3. */
+  after?: number;
+  /** Minimum milliseconds between repeated alerts for this workflow. Defaults to 1 hour. */
+  cooldownMs?: number;
+  /** Count skipped runs when the scheduler reports them. Reserved for parity with OpenClaw. */
+  includeSkipped?: boolean;
+  /** Delivery mode for alerts. Defaults to telegram. */
+  mode?: "telegram" | "webhook";
+  /** Optional explicit chat id or webhook URL. */
+  to?: string;
+  /** Suppress failure alerts for best-effort scheduled workflows. */
+  bestEffort?: boolean;
 }
 
 export interface StepBase {
@@ -148,6 +164,7 @@ export interface WorkflowDef {
   env?: Record<string, string>;
   condition?: string;
   concurrency?: { mode: ConcurrencyMode; limit?: number };
+  failureAlert?: FailureAlertPolicy | false;
   steps: Step[];
   approvalDefaults?: ApprovalDefaults;
   sourcePath?: string;

@@ -28,6 +28,8 @@ const KNOWN_TOP_LEVEL = new Set([
   "env",
   "condition",
   "concurrency",
+  "failure_alert",
+  "failureAlert",
   "steps",
   "approval_defaults",
   "approvalDefaults",
@@ -150,6 +152,8 @@ function parseTriggers(raw: unknown, ctx: Ctx): Trigger[] {
     else if (t.webhook === true) trigger.webhook = "true";
     if (typeof t.event === "string") trigger.event = t.event;
     if (typeof t.timezone === "string") trigger.timezone = t.timezone;
+    const staggerMs = readNumberLike(t.stagger_ms ?? t.staggerMs);
+    if (staggerMs !== undefined) trigger.staggerMs = Math.max(0, Math.floor(staggerMs));
     if (t.manual === true) trigger.manual = true;
     if (!trigger.cron && !trigger.at && !trigger.every && !trigger.webhook && !trigger.event && !trigger.manual) {
       ctx.errors.push({ message: "trigger must declare one of: cron, at, every, webhook, event, manual", severity: "error" });
@@ -401,6 +405,7 @@ export function parseWorkflow(yamlText: string, sourcePath?: string): ParseResul
     concurrency: obj.concurrency && typeof obj.concurrency === "object" && !Array.isArray(obj.concurrency)
       ? parseConcurrency(obj.concurrency as Record<string, unknown>)
       : undefined,
+    failureAlert: parseFailureAlert(obj.failure_alert ?? obj.failureAlert),
     steps,
     approvalDefaults: parseApprovalDefaults(obj.approval_defaults ?? obj.approvalDefaults),
     sourcePath,
@@ -415,6 +420,22 @@ function parseConcurrency(raw: Record<string, unknown>) {
   const mode = raw.mode === "skip" || raw.mode === "parallel" ? raw.mode : "queue";
   const limit = readNumberLike(raw.limit);
   return { mode: mode as "queue" | "skip" | "parallel", limit };
+}
+
+function parseFailureAlert(raw: unknown) {
+  if (raw === false) return false;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const r = raw as Record<string, unknown>;
+  const after = readNumberLike(r.after);
+  const cooldownMs = readNumberLike(r.cooldown_ms ?? r.cooldownMs);
+  return {
+    after: after !== undefined ? Math.max(1, Math.floor(after)) : undefined,
+    cooldownMs: cooldownMs !== undefined ? Math.max(0, Math.floor(cooldownMs)) : undefined,
+    includeSkipped: r.include_skipped === true || r.includeSkipped === true,
+    mode: r.mode === "webhook" ? "webhook" as const : r.mode === "telegram" || r.mode === "announce" ? "telegram" as const : undefined,
+    to: typeof r.to === "string" ? r.to.trim() : undefined,
+    bestEffort: r.best_effort === true || r.bestEffort === true,
+  };
 }
 
 function parseApprovalDefaults(raw: unknown) {

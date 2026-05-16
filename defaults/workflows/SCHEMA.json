@@ -31,7 +31,9 @@
           "manual": { "type": "boolean" },
           "webhook": { "type": "string" },
           "event": { "type": "string" },
-          "timezone": { "type": "string" }
+          "timezone": { "type": "string" },
+          "stagger_ms": { "type": "integer", "minimum": 0 },
+          "staggerMs": { "type": "integer", "minimum": 0 }
         },
         "additionalProperties": false
       }
@@ -49,6 +51,8 @@
       },
       "additionalProperties": false
     },
+    "failure_alert": { "$ref": "#/$defs/FailureAlert" },
+    "failureAlert": { "$ref": "#/$defs/FailureAlert" },
     "approval_defaults": {
       "type": "object",
       "properties": {
@@ -64,6 +68,26 @@
     }
   },
   "$defs": {
+    "FailureAlert": {
+      "oneOf": [
+        { "const": false },
+        {
+          "type": "object",
+          "properties": {
+            "after": { "type": "integer", "minimum": 1 },
+            "cooldown_ms": { "type": "integer", "minimum": 0 },
+            "cooldownMs": { "type": "integer", "minimum": 0 },
+            "include_skipped": { "type": "boolean" },
+            "includeSkipped": { "type": "boolean" },
+            "mode": { "enum": ["telegram", "announce", "webhook"] },
+            "to": { "type": "string" },
+            "best_effort": { "type": "boolean" },
+            "bestEffort": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
     "Retry": {
       "type": "object",
       "required": ["max"],

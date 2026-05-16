@@ -24,12 +24,19 @@ args:                          # optional input parameters
 triggers:                      # optional; manual + MCP `run` always work
   - cron: "*/5 * * * *"        # standard cron
     timezone: Europe/Stockholm
+    stagger_ms: 30000           # deterministic jitter window to avoid synchronized runs
   - at: "2026-06-01T08:00:00Z" # one-off
   - webhook: /grafana-alerts   # POST endpoint (registered in kellix web)
   - manual: true               # explicit declaration; same as omitting
 
 concurrency:                   # default: { mode: queue }
   mode: skip                   # skip|queue|parallel
+
+failure_alert:                 # optional: alert on repeated scheduled-run failures
+  after: 2                     # consecutive failed runs before messaging you
+  cooldown_ms: 1800000         # minimum time between repeated alerts for this workflow
+  mode: telegram               # telegram (default) or webhook
+  # to: "https://example.com/hook" # required for webhook mode
 
 env:                           # static env merged into shell steps
   REGION: eu-west-1
@@ -54,6 +61,19 @@ Every step supports common keys:
 - `on_error` — `stop` (default) / `continue` / `skip_rest`
 - `retry: { max, backoff: exponential|linear|none, delay_ms, max_delay_ms, jitter: true }`
 - `env: { K: V }` — extra env merged into the step (shell steps)
+
+## Failure alerts
+
+For cron/at workflows, add `failure_alert` to avoid repeated messages when a workflow keeps failing:
+
+```yaml
+failure_alert:
+  after: 2             # alert after 2 consecutive failed workflow runs
+  cooldown_ms: 1800000 # then at most once every 30 minutes while still failing
+  mode: telegram       # or webhook with `to: https://...`
+```
+
+Kellix resets the failure count after a successful run. Use `failure_alert: false` to explicitly disable alerts for a workflow. `include_skipped` is accepted for OpenClaw compatibility; current Kellix workflows only report completed scheduled runs as ok/error.
 
 ### `run:` — arbitrary shell
 

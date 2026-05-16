@@ -54,8 +54,8 @@ export function validateProjectScriptsManifest(projectRoot: string): void {
 }
 
 export function syncBundledWorkflowDocs(defaultWorkflowsDir: string, agentWorkflowsDir: string): void {
-  // Copy WORKFLOW_TEMPLATE.md + SCHEMA.json into the agent's workflows/ so the
-  // agent has the spec alongside its own .workflow.yaml files. Examples are
+  // Refresh WORKFLOW_TEMPLATE.md + SCHEMA.json in the agent's workflows/ so the
+  // agent has the current spec alongside its own .workflow.yaml files. Examples are
   // intentionally NOT copied — they have cron triggers that would activate
   // automatically. Agents copy + adapt from defaults/workflows/examples/.
   if (!existsSync(defaultWorkflowsDir)) return;
@@ -63,7 +63,7 @@ export function syncBundledWorkflowDocs(defaultWorkflowsDir: string, agentWorkfl
   for (const file of ["WORKFLOW_TEMPLATE.md", "SCHEMA.json"]) {
     const src = join(defaultWorkflowsDir, file);
     const dest = join(agentWorkflowsDir, file);
-    if (existsSync(src) && !existsSync(dest)) cpSync(src, dest);
+    if (existsSync(src)) cpSync(src, dest);
   }
 }
 

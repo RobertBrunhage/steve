@@ -17,6 +17,7 @@ export interface WorkflowTriggerEntry {
   at?: string;
   every?: string;
   timezone?: string;
+  staggerMs?: number;
   webhook?: string;
   event?: string;
 }
@@ -57,6 +58,7 @@ function appendTriggers(out: WorkflowTriggerEntry[], userName: string, agentId: 
       at: trigger.at,
       every: trigger.every,
       timezone: trigger.timezone,
+      staggerMs: trigger.staggerMs,
       webhook: trigger.webhook,
       event: trigger.event,
     });
@@ -67,6 +69,6 @@ export function fingerprintWorkflowTriggers(entries: WorkflowTriggerEntry[]): st
   return entries.map((e) => {
     const ts = e.cron || e.at || e.every || e.webhook || e.event || "";
     const tz = e.timezone || "";
-    return `workflow:${e.userName}:${e.agentId}:${e.workflowName}:${ts}:${tz}`;
+    return `workflow:${e.userName}:${e.agentId}:${e.workflowName}:${ts}:${tz}:${e.staggerMs ?? ""}`;
   });
 }

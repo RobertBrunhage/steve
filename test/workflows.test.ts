@@ -35,7 +35,7 @@ async function main() {
 
   const { parseWorkflow, workflowVersion } = await import("../src/workflows/parser.js");
   const { evaluate, interpolate, coerceBool } = await import("../src/workflows/expressions.js");
-  const { writeWorkflow, readWorkflow, listWorkflows, deleteWorkflow } = await import("../src/workflows/storage.js");
+  const { writeWorkflow, readWorkflow, listWorkflows, deleteWorkflow, readWorkflowFailureAlertState, writeWorkflowFailureAlertState } = await import("../src/workflows/storage.js");
   const { validateWorkflowYaml } = await import("../src/workflows/runner.js");
 
   // --- Parser: each step type round-trips ---
@@ -137,6 +137,34 @@ steps:
   await test("parser: wait step parses", () => {
     assert.ok(parsedWait.def);
     assert.equal(parsedWait.def?.steps[0].type, "wait");
+  });
+
+  const parsedFailureAlert = parseWorkflow(`name: t
+failure_alert:
+  after: 2
+  cooldown_ms: 1800000
+  include_skipped: true
+  mode: webhook
+  to: https://example.com/hook
+  best_effort: true
+triggers:
+  - cron: "*/5 * * * *"
+    stagger_ms: 30000
+steps:
+  - id: a
+    run: echo hi
+`);
+  await test("parser: failure_alert parses", () => {
+    assert.ok(parsedFailureAlert.def);
+    assert.deepEqual(parsedFailureAlert.def?.failureAlert, {
+      after: 2,
+      cooldownMs: 1800000,
+      includeSkipped: true,
+      mode: "webhook",
+      to: "https://example.com/hook",
+      bestEffort: true,
+    });
+    assert.equal(parsedFailureAlert.def?.triggers?.[0].staggerMs, 30000);
   });
 
   // --- Parser: Lobster compatibility alias ---
@@ -268,6 +296,17 @@ steps:
     assert.equal(ok, true);
     const all = listWorkflows("robert", "devops");
     assert.ok(!all.find((d) => d.name === "another"));
+  });
+
+  await test("storage: failure alert state round-trips", () => {
+    writeWorkflowFailureAlertState("robert", "devops", "test", {
+      consecutiveErrors: 2,
+      lastFailureAlertAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.deepEqual(readWorkflowFailureAlertState("robert", "devops", "test"), {
+      consecutiveErrors: 2,
+      lastFailureAlertAt: "2026-01-01T00:00:00.000Z",
+    });
   });
 
   // --- validateWorkflowYaml integration ---
@@ -930,6 +969,99 @@ steps:
       headers: { "x-webhook-token": "super-secret-token" },
     });
     assert.equal(withToken.status, 200);
+  });
+
+  await test("scheduler: failure_alert waits for threshold, cooldowns, and resets on success", async () => {
+    const { fireWorkflow } = await import("../src/scheduler.js");
+    writeWorkflow("robert", "devops", "alert-flow", `name: alert-flow
+failure_alert:
+  after: 2
+  cooldown_ms: 60000
+steps:
+  - id: bad
+    run: "false"
+`);
+    const sent: string[] = [];
+    const alertEngine = {
+      runByName: async () => ({ status: "error", error: { message: "boom" } }),
+      getDeps: () => ({ channel: { sendMessage: async (_user: string, text: string) => { sent.push(text); return { ok: true }; } } }),
+    } as any;
+    const entry = { userName: "robert", agentId: "devops", workflowName: "alert-flow" } as any;
+
+    await fireWorkflow(entry, alertEngine, "cron");
+    assert.equal(sent.length, 0);
+    await fireWorkflow(entry, alertEngine, "cron");
+    assert.equal(sent.length, 1);
+    await fireWorkflow(entry, alertEngine, "cron");
+    assert.equal(sent.length, 1);
+
+    writeWorkflowFailureAlertState("robert", "devops", "alert-flow", { consecutiveErrors: 3, lastFailureAlertAt: "2000-01-01T00:00:00.000Z" });
+    await fireWorkflow(entry, alertEngine, "cron");
+    assert.equal(sent.length, 2);
+
+    const okEngine = { ...alertEngine, runByName: async () => ({ status: "ok" }) } as any;
+    await fireWorkflow(entry, okEngine, "cron");
+    assert.deepEqual(readWorkflowFailureAlertState("robert", "devops", "alert-flow"), {});
+  });
+
+  await test("scheduler: best_effort suppresses failure alerts", async () => {
+    const { fireWorkflow } = await import("../src/scheduler.js");
+    writeWorkflow("robert", "devops", "best-effort-flow", `name: best-effort-flow
+failure_alert:
+  after: 1
+  best_effort: true
+steps:
+  - id: bad
+    run: "false"
+`);
+    let sends = 0;
+    const alertEngine = {
+      runByName: async () => ({ status: "error", error: { message: "boom" } }),
+      getDeps: () => ({ channel: { sendMessage: async () => { sends++; return { ok: true }; } } }),
+    } as any;
+    await fireWorkflow({ userName: "robert", agentId: "devops", workflowName: "best-effort-flow" } as any, alertEngine, "cron");
+    assert.equal(sends, 0);
+  });
+
+  await test("scheduler: webhook failure alerts post payload", async () => {
+    const { fireWorkflow } = await import("../src/scheduler.js");
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ url: string; body: any }> = [];
+    globalThis.fetch = (async (url: any, init: any) => {
+      calls.push({ url: String(url), body: JSON.parse(String(init.body)) });
+      return new Response("ok", { status: 200 });
+    }) as any;
+    try {
+      writeWorkflow("robert", "devops", "webhook-alert-flow", `name: webhook-alert-flow
+failure_alert:
+  after: 1
+  mode: webhook
+  to: https://example.com/alert
+steps:
+  - id: bad
+    run: "false"
+`);
+      const alertEngine = {
+        runByName: async () => ({ status: "error", error: { message: "boom" } }),
+        getDeps: () => ({ channel: { sendMessage: async () => { throw new Error("should not send telegram"); } } }),
+      } as any;
+      await fireWorkflow({ userName: "robert", agentId: "devops", workflowName: "webhook-alert-flow" } as any, alertEngine, "cron");
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].url, "https://example.com/alert");
+      assert.equal(calls[0].body.workflowName, "webhook-alert-flow");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  await test("scheduler: stagger_ms resolves deterministically within window", async () => {
+    const { resolveWorkflowStaggerMs } = await import("../src/scheduler.js");
+    const entry = { userName: "robert", agentId: "devops", workflowName: "staggered", staggerMs: 30000 } as any;
+    const first = resolveWorkflowStaggerMs(entry);
+    const second = resolveWorkflowStaggerMs(entry);
+    assert.equal(first, second);
+    assert.ok(first >= 0 && first < 30000);
+    assert.equal(resolveWorkflowStaggerMs({ ...entry, staggerMs: 0 }), 0);
   });
 
   await test("graph: renderMermaid produces a graph TD with all step nodes", async () => {

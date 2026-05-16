@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { CronJob } from "cron";
@@ -10,6 +11,8 @@ import { setReminderCount } from "./health.js";
 import { toUserSlug } from "./users.js";
 import { fingerprintWorkflowTriggers, loadAllWorkflowTriggers, type WorkflowTriggerEntry } from "./workflows/triggers.js";
 import type { WorkflowRunner } from "./workflows/runner.js";
+import { readWorkflowFailureAlertState, readWorkflow, writeWorkflowFailureAlertState } from "./workflows/storage.js";
+import type { FailureAlertPolicy } from "./workflows/types.js";
 
 export interface Job {
   id: string;
@@ -52,6 +55,8 @@ const activeJobs: Map<string, CronJob> = new Map();
 const firedOneOffs: Set<string> = new Set();
 const MAX_RETRIES = 3;
 const DAILY_COMPACTION_CRON = "0 23 * * *";
+const DEFAULT_WORKFLOW_FAILURE_ALERT_AFTER = 3;
+const DEFAULT_WORKFLOW_FAILURE_ALERT_COOLDOWN_MS = 60 * 60 * 1000;
 
 function agentOrDefault(agentId?: string): string {
   return agentId ? toUserSlug(agentId) : APP_SLUG;
@@ -462,9 +467,7 @@ function registerWorkflowTriggers(entries: WorkflowTriggerEntry[], engine: Workf
         const cronJob = CronJob.from({
           cronTime: entry.cron,
           onTick: () => {
-            engine.runByName(entry.userName, entry.agentId, entry.workflowName, { triggerKind: "cron" }).catch((err) => {
-              p.log.warn(`workflow ${entry.workflowName} failed: ${err instanceof Error ? err.message : err}`);
-            });
+            fireWorkflowWithStagger(entry, engine, "cron");
           },
           start: true,
           timeZone: entry.timezone,
@@ -481,9 +484,7 @@ function registerWorkflowTriggers(entries: WorkflowTriggerEntry[], engine: Workf
       if (!Number.isNaN(at) && at > now) {
         const key = `workflow-at:${entry.userName}:${entry.agentId}:${entry.workflowName}`;
         const timer = setTimeout(() => {
-          engine.runByName(entry.userName, entry.agentId, entry.workflowName, { triggerKind: "at" }).catch((err) => {
-            p.log.warn(`workflow ${entry.workflowName} failed: ${err instanceof Error ? err.message : err}`);
-          });
+          fireWorkflowWithStagger(entry, engine, "at");
         }, at - now);
         // Track via activeJobs interface: store a stub with stop()
         const stub = { stop: () => clearTimeout(timer) } as unknown as CronJob;
@@ -491,6 +492,103 @@ function registerWorkflowTriggers(entries: WorkflowTriggerEntry[], engine: Workf
       }
     }
   }
+}
+
+function fireWorkflowWithStagger(entry: WorkflowTriggerEntry, engine: WorkflowRunner, triggerKind: "cron" | "at"): void {
+  const delay = resolveWorkflowStaggerMs(entry);
+  if (delay <= 0) {
+    void fireWorkflow(entry, engine, triggerKind);
+    return;
+  }
+  setTimeout(() => void fireWorkflow(entry, engine, triggerKind), delay);
+}
+
+export function resolveWorkflowStaggerMs(entry: WorkflowTriggerEntry): number {
+  const staggerMs = entry.staggerMs ?? 0;
+  if (staggerMs <= 1) return 0;
+  const key = `${entry.userName}:${entry.agentId}:${entry.workflowName}`;
+  const digest = createHash("sha256").update(key).digest();
+  return digest.readUInt32BE(0) % staggerMs;
+}
+
+export async function fireWorkflow(entry: WorkflowTriggerEntry, engine: WorkflowRunner, triggerKind: "cron" | "at"): Promise<void> {
+  try {
+    const instance = await engine.runByName(entry.userName, entry.agentId, entry.workflowName, { triggerKind });
+    if (instance.status === "error") {
+      await handleWorkflowFailure(entry, engine, instance.error?.message || "workflow failed");
+      return;
+    }
+    resetWorkflowFailureState(entry);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    p.log.warn(`workflow ${entry.workflowName} failed: ${message}`);
+    await handleWorkflowFailure(entry, engine, message);
+  }
+}
+
+async function handleWorkflowFailure(entry: WorkflowTriggerEntry, engine: WorkflowRunner, error: string): Promise<void> {
+  const def = readWorkflow(entry.userName, entry.agentId, entry.workflowName);
+  const policy = def?.failureAlert;
+  if (!policy) return;
+  if (policy.bestEffort) return;
+
+  const previous = readWorkflowFailureAlertState(entry.userName, entry.agentId, entry.workflowName);
+  const nextCount = (previous.consecutiveErrors ?? 0) + 1;
+  const after = policy.after ?? DEFAULT_WORKFLOW_FAILURE_ALERT_AFTER;
+  const cooldownMs = policy.cooldownMs ?? DEFAULT_WORKFLOW_FAILURE_ALERT_COOLDOWN_MS;
+  const now = Date.now();
+  const lastAlertMs = previous.lastFailureAlertAt ? new Date(previous.lastFailureAlertAt).getTime() : 0;
+  const inCooldown = Number.isFinite(lastAlertMs) && lastAlertMs > 0 && now - lastAlertMs < cooldownMs;
+  const next = {
+    consecutiveErrors: nextCount,
+    lastFailureAlertAt: previous.lastFailureAlertAt,
+  };
+
+  if (nextCount >= after && !inCooldown) {
+    const text = [
+      `Workflow "${entry.workflowName}" failed ${nextCount} times`,
+      `Agent: ${entry.agentId}`,
+      `Last error: ${error.slice(0, 500)}`,
+    ].join("\n");
+    try {
+      await sendWorkflowFailureAlert(entry, engine, policy, text);
+      next.lastFailureAlertAt = new Date(now).toISOString();
+    } catch (sendErr) {
+      p.log.warn(`workflow failure alert failed: ${sendErr instanceof Error ? sendErr.message : sendErr}`);
+    }
+  }
+
+  writeWorkflowFailureAlertState(entry.userName, entry.agentId, entry.workflowName, next);
+}
+
+async function sendWorkflowFailureAlert(
+  entry: WorkflowTriggerEntry,
+  engine: WorkflowRunner,
+  policy: FailureAlertPolicy,
+  text: string,
+): Promise<void> {
+  if (policy.mode === "webhook") {
+    if (!policy.to) throw new Error("failure_alert.mode=webhook requires failure_alert.to");
+    const res = await fetch(policy.to, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userName: entry.userName,
+        agentId: entry.agentId,
+        workflowName: entry.workflowName,
+        message: text,
+      }),
+    });
+    if (!res.ok) throw new Error(`webhook returned ${res.status}`);
+    return;
+  }
+  await engine.getDeps().channel.sendMessage(entry.userName, text, { agentId: entry.agentId });
+}
+
+function resetWorkflowFailureState(entry: WorkflowTriggerEntry): void {
+  const previous = readWorkflowFailureAlertState(entry.userName, entry.agentId, entry.workflowName);
+  if (!previous.consecutiveErrors && !previous.lastFailureAlertAt) return;
+  writeWorkflowFailureAlertState(entry.userName, entry.agentId, entry.workflowName, {});
 }
 
 function listAllUserAgents(): Array<{ userName: string; agentId: string }> {
