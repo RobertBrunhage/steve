@@ -693,6 +693,17 @@ export function renderUserAgentDetailPage(opts: RenderUserAgentDetailOptions): s
     </div>
   `;
 
+  const workflowsLink = Section({
+    title: "Workflows",
+    description: "Multi-step automations defined as YAML in this agent's workflows/ folder. Open for approval gates, cron-driven jobs, sub-workflows.",
+    className: "mb-6",
+    children: `
+      <a href="/users/${slug}/agents/${agentSlug}/workflows" class="inline-flex items-center gap-2 text-sm text-neutral-700 hover:text-neutral-900 underline decoration-neutral-300 underline-offset-2">
+        Open workflows &rarr;
+      </a>
+    `,
+  });
+
   return layout(`${userName} / ${agent.id}`, `
     ${nav(csrfToken, "home")}
     ${header}
@@ -700,6 +711,7 @@ export function renderUserAgentDetailPage(opts: RenderUserAgentDetailOptions): s
     ${profileSection}
     ${modelSection}
     ${telegramSection}
+    ${workflowsLink}
     ${sessionsBlock}
     ${logsSection}
   `, { width: "app" });

@@ -6,6 +6,8 @@ import { appendUserActivity } from "../activity.js";
 import type { Brain } from "../brain/index.js";
 import { config, getRuntime, getTelegramApiBase, getUserAgentDir } from "../config.js";
 import { resolveUserAgentId } from "../user-agents.js";
+import { decodeApprovalPayload } from "../workflows/steps/approval.js";
+import type { WorkflowRunner } from "../workflows/runner.js";
 import { getUserName } from "./commands.js";
 
 type DownloadedPhoto = { hostPath: string; containerPath: string };
@@ -185,9 +187,18 @@ export function registerMessageHandler(
   bot: Bot,
   brain: Brain,
   route?: BotRoute,
+  engine?: WorkflowRunner,
 ): void {
   bot.on("message:text", (ctx) => {
-    handleBrainMessage(ctx, brain, ctx.message.text, route);
+    const text = ctx.message.text;
+    const userName = route?.userName || getUserName(ctx.from?.id ?? 0);
+    const agentId = resolveUserAgentId(userName, route?.agentId);
+    // First, see if there's a pending workflow approval to consume.
+    if (engine && engine.tryConsumeAsApprovalReply(userName, agentId, text, userName)) {
+      ctx.reply("Workflow resumed.").catch(() => {});
+      return;
+    }
+    handleBrainMessage(ctx, brain, text, route);
   });
 
   // Inline button callbacks
@@ -195,6 +206,17 @@ export function registerMessageHandler(
     const userName = route?.userName || getUserName(ctx.from.id);
     const data = ctx.callbackQuery.data;
     ctx.answerCallbackQuery();
+
+    // Workflow approval button: payload is wf:<instanceId>:<stepId>:<labelB64>
+    const decoded = decodeApprovalPayload(data);
+    if (decoded && engine) {
+      const ok = engine.resume({ instanceId: decoded.instanceId, response: decoded.label, approvedBy: userName });
+      if (ok) {
+        ctx.reply(`Workflow approval received: ${decoded.label}`).catch(() => {});
+        return;
+      }
+    }
+
     handleBrainMessage(ctx, brain, data, route ? { ...route, userName } : undefined);
   });
 

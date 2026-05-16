@@ -15,6 +15,7 @@ import { getComposeProject, reconcileUserAgents } from "./web/docker.js";
 import { setTelegramConnected, setVault } from "./health.js";
 import { TelegramChannel } from "./channels/telegram.js";
 import { registerChannel } from "./channels/index.js";
+import { createWorkflowEngine } from "./workflows/index.js";
 import { hasKeyfile } from "./vault/index.js";
 import { getAgentTelegramBotToken, getTelegramBotToken } from "./secrets.js";
 import { getAllowedTelegramIds, normalizeUsers, readUsersFromVault, type UsersMap, writeUserManifest } from "./users.js";
@@ -74,14 +75,14 @@ async function waitForConfiguration(vault: Vault, botToken: string, users: Users
   return { botToken: nextBotToken, users: nextUsers };
 }
 
-async function startBot(botToken: string, brain: Brain, route?: { userName: string; agentId?: string; botToken?: string }) {
+async function startBot(botToken: string, brain: Brain, route?: { userName: string; agentId?: string; botToken?: string }, engine?: ReturnType<typeof createWorkflowEngine>) {
   const MAX_RETRIES = 5;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     const bot = createBot(botToken);
 
     registerCommands(bot, brain, route);
-    registerMessageHandler(bot, brain, route);
+    registerMessageHandler(bot, brain, route, engine);
 
       await bot.api.setMyCommands([
       { command: "start", description: "Start Kellix" },
@@ -89,8 +90,6 @@ async function startBot(botToken: string, brain: Brain, route?: { userName: stri
       { command: "schedule", description: "View or update training schedule" },
       { command: "history", description: "View recent training history" },
     ]);
-
-    if (!route) startScheduler(brain);
 
     await bot.api.deleteWebhook({ drop_pending_updates: true });
 
@@ -172,16 +171,29 @@ async function main() {
     }
   }
 
-  return startServices(vault, botToken, users);
+  return startServices(vault, botToken, users, web);
 }
 
-async function startServices(vault: Vault, botToken: string, users: UsersMap) {
+async function startServices(vault: Vault, botToken: string, users: UsersMap, web?: { setWorkflowEngine?: (engine: ReturnType<typeof createWorkflowEngine>) => void }) {
   // MCP server
   const channel = new TelegramChannel(botToken, vault);
   registerChannel(channel);
 
+  // Workflow engine — shared between the MCP server, scheduler, web UI, and
+  // Telegram bots (for approval callbacks).
+  const brain = new Brain();
+  const engine = createWorkflowEngine({
+    brain,
+    channel,
+    vault,
+    dataDir: config.dataDir,
+    projectRoot: config.projectRoot,
+  });
+  engine.rehydrate();
+  web?.setWorkflowEngine?.(engine);
+
   const mcpFactory = createMcpServerFactory(
-    { channel, projectRoot: config.projectRoot, dataDir: config.dataDir },
+    { channel, projectRoot: config.projectRoot, dataDir: config.dataDir, engine },
     vault,
   );
   await startMcpHttpServer(mcpFactory, config.mcpPort);
@@ -190,15 +202,15 @@ async function startServices(vault: Vault, botToken: string, users: UsersMap) {
   setVault(vault);
 
   // Start services
-  const brain = new Brain();
   setTelegramConnected(true);
+  startScheduler(brain, engine);
 
   await Promise.all([
-    startBot(botToken, brain),
+    startBot(botToken, brain, undefined, engine),
     ...listTelegramAgentRoutes(Object.keys(users))
       .map((route) => ({ ...route, botToken: getAgentTelegramBotToken(vault, route.userName, route.agentId) }))
       .filter((route): route is { userName: string; agentId: string; chatId?: string; botToken: string } => !!route.botToken)
-      .map((route) => startBot(route.botToken, brain, route)),
+      .map((route) => startBot(route.botToken, brain, route, engine)),
   ]);
 }
 

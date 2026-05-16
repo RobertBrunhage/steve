@@ -1,0 +1,19 @@
+name: daily-summary
+description: Once a day, ask the agent to summarize yesterday's activity log and post to Telegram.
+
+triggers:
+  - cron: "0 8 * * *"
+    timezone: Europe/Stockholm
+
+steps:
+  - id: gather
+    run: cat /data/memory/daily/$(date -d 'yesterday' +%Y-%m-%d).md 2>/dev/null || echo "(no log yet)"
+
+  - id: summarize
+    llm:
+      prompt: |
+        Here is yesterday's daily log. Write a 3-sentence summary in
+        Robert's voice (terse, no filler). End with one focus suggestion
+        for today.
+
+        ${$steps.gather.stdout}

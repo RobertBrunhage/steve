@@ -722,6 +722,147 @@ export function registerUsersRoutes(app: Hono, deps: WebRouteDeps) {
     }));
   });
 
+  // --- Workflows ------------------------------------------------------------
+
+  app.get("/users/:name/agents/:agent/workflows", async (c) => {
+    const session = deps.requireAdminPage(c);
+    if (session instanceof Response) return session;
+    const validatedName = validateUserSlug(c.req.param("name"));
+    if (!validatedName.ok) return c.redirect("/");
+    const name = validatedName.value;
+    const agentId = normalizeAgentId(String(c.req.param("agent") || ""));
+    const { listWorkflows, listInstances } = await import("../workflows/storage.js");
+    const workflows = listWorkflows(name, agentId);
+    const recentRuns = listInstances(name, agentId, { limit: 20 });
+    const { renderWorkflowsList } = await import("./views/workflows.js");
+    return c.html(renderWorkflowsList({ userName: name, agentId, workflows, recentRuns, csrfToken: session.csrfToken }));
+  });
+
+  app.get("/users/:name/agents/:agent/workflows/:wf", async (c) => {
+    const session = deps.requireAdminPage(c);
+    if (session instanceof Response) return session;
+    const validatedName = validateUserSlug(c.req.param("name"));
+    if (!validatedName.ok) return c.redirect("/");
+    const name = validatedName.value;
+    const agentId = normalizeAgentId(String(c.req.param("agent") || ""));
+    const wfName = String(c.req.param("wf") || "");
+    const { readWorkflow, listInstances } = await import("../workflows/storage.js");
+    const workflow = readWorkflow(name, agentId, wfName);
+    if (!workflow) return c.redirect(`/users/${name}/agents/${agentId}/workflows`);
+    const runs = listInstances(name, agentId, { workflowName: wfName, limit: 10 });
+    const { renderWorkflowDetail } = await import("./views/workflows.js");
+    return c.html(renderWorkflowDetail({ userName: name, agentId, workflow, runs, csrfToken: session.csrfToken }));
+  });
+
+  app.get("/users/:name/agents/:agent/workflows/:wf/runs/:id", async (c) => {
+    const session = deps.requireAdminPage(c);
+    if (session instanceof Response) return session;
+    const validatedName = validateUserSlug(c.req.param("name"));
+    if (!validatedName.ok) return c.redirect("/");
+    const name = validatedName.value;
+    const agentId = normalizeAgentId(String(c.req.param("agent") || ""));
+    const wfName = String(c.req.param("wf") || "");
+    const id = String(c.req.param("id") || "");
+    const { readWorkflow, readInstance } = await import("../workflows/storage.js");
+    const workflow = readWorkflow(name, agentId, wfName);
+    const instance = readInstance(name, agentId, id);
+    if (!workflow || !instance) return c.redirect(`/users/${name}/agents/${agentId}/workflows`);
+    const { renderWorkflowRun } = await import("./views/workflows.js");
+    return c.html(renderWorkflowRun({ userName: name, agentId, workflow, instance, csrfToken: session.csrfToken }));
+  });
+
+  app.post("/users/:name/agents/:agent/workflows/:wf/run", async (c) => {
+    const result = await deps.requireAdminForm(c);
+    if (result instanceof Response) return result;
+    const validatedName = validateUserSlug(c.req.param("name"));
+    if (!validatedName.ok) return c.redirect("/");
+    const name = validatedName.value;
+    const agentId = normalizeAgentId(String(c.req.param("agent") || ""));
+    const wfName = String(c.req.param("wf") || "");
+    const engine = deps.workflowEngine;
+    if (!engine) {
+      setFlash(c, "Workflow engine not available", "error");
+      return c.redirect(`/users/${name}/agents/${agentId}/workflows/${wfName}`);
+    }
+    engine.runByName(name, agentId, wfName, { triggerKind: "manual" }).catch((err) => {
+      console.error(`Manual workflow run failed: ${err instanceof Error ? err.message : err}`);
+    });
+    setFlash(c, "Workflow started");
+    return c.redirect(`/users/${name}/agents/${agentId}/workflows/${wfName}`);
+  });
+
+  app.post("/users/:name/agents/:agent/workflows/:wf/runs/:id/approve", async (c) => {
+    const result = await deps.requireAdminForm(c);
+    if (result instanceof Response) return result;
+    const validatedName = validateUserSlug(c.req.param("name"));
+    if (!validatedName.ok) return c.redirect("/");
+    const name = validatedName.value;
+    const agentId = normalizeAgentId(String(c.req.param("agent") || ""));
+    const wfName = String(c.req.param("wf") || "");
+    const id = String(c.req.param("id") || "");
+    const response = String(result.body.response || "");
+    const engine = deps.workflowEngine;
+    if (!engine) {
+      setFlash(c, "Workflow engine not available", "error");
+      return c.redirect(`/users/${name}/agents/${agentId}/workflows/${wfName}/runs/${id}`);
+    }
+    const ok = engine.resume({ instanceId: id, response, approvedBy: "admin" });
+    setFlash(c, ok ? `Resumed with ${response}` : "No pending approval to resume", ok ? "ok" : "error");
+    return c.redirect(`/users/${name}/agents/${agentId}/workflows/${wfName}/runs/${id}`);
+  });
+
+  // PUBLIC webhook endpoint — does NOT require admin auth, since it's meant
+  // to be hit by external systems (CI, Cloudflare, monitoring). The workflow's
+  // YAML must declare `triggers: [{ webhook: true }]` to opt in; an optional
+  // `webhook_token` value in the trigger is enforced via X-Webhook-Token.
+  app.post("/wf/:name/:agent/:workflow", async (c) => {
+    const validatedName = validateUserSlug(String(c.req.param("name") || ""));
+    if (!validatedName.ok) return c.json({ error: "invalid user" }, 400);
+    const name = validatedName.value;
+    const agentId = normalizeAgentId(String(c.req.param("agent") || ""));
+    const wfName = String(c.req.param("workflow") || "");
+    const engine = deps.workflowEngine;
+    if (!engine) return c.json({ error: "workflow engine not available" }, 503);
+
+    const { readWorkflow } = await import("../workflows/storage.js");
+    const def = readWorkflow(name, agentId, wfName);
+    if (!def) return c.json({ error: "workflow not found" }, 404);
+
+    const webhookTrigger = (def.triggers ?? []).find((t) => !!t.webhook);
+    if (!webhookTrigger) return c.json({ error: "workflow does not declare a webhook trigger" }, 403);
+
+    // If the trigger's webhook value looks like a token (non-empty, non-"true"),
+    // require it as the X-Webhook-Token header.
+    const expectedToken = typeof webhookTrigger.webhook === "string" && webhookTrigger.webhook !== "true" && webhookTrigger.webhook.length > 0
+      ? webhookTrigger.webhook
+      : undefined;
+    if (expectedToken) {
+      const provided = c.req.header("x-webhook-token") || c.req.header("X-Webhook-Token");
+      if (provided !== expectedToken) return c.json({ error: "invalid webhook token" }, 401);
+    }
+
+    // Parse body as args. Accept either JSON or query string.
+    let args: Record<string, unknown> = {};
+    const contentType = c.req.header("content-type") || "";
+    if (contentType.includes("application/json")) {
+      try { args = await c.req.json() as Record<string, unknown>; } catch {}
+    } else {
+      const formArgs = await c.req.parseBody().catch(() => ({} as Record<string, unknown>));
+      args = formArgs as Record<string, unknown>;
+    }
+
+    try {
+      const inst = await engine.runByName(name, agentId, wfName, {
+        args,
+        triggerKind: "webhook",
+        triggerMeta: { headers: Object.fromEntries(Object.entries(c.req.header())) },
+      });
+      return c.json({ instanceId: inst.id, status: inst.status, output: inst.output });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    }
+  });
+
   app.post("/users/:name/agent/model", async (c) => {
     return saveAgentModel(c, APP_SLUG);
   });

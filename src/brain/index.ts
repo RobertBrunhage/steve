@@ -231,6 +231,24 @@ export class Brain {
     }
   }
 
+  /**
+   * Run a prompt in a fresh isolated session and return the assistant's
+   * concatenated text response. Used by workflow `llm:` steps when the
+   * workflow needs the agent's reply as a step output (rather than routing
+   * via send_message to the user).
+   */
+  async promptOnce(userName: string, agentId: string | undefined, prompt: string): Promise<string> {
+    const resolvedAgentId = resolveUserAgentId(userName, agentId);
+    const oc = this.getClient(userName, resolvedAgentId);
+    const sessionId = await this.createSessionId(oc, `${userName} (workflow)`, resolvedAgentId);
+    const res = await this.promptSession(oc, sessionId, this.buildPromptParts(prompt), resolvedAgentId);
+    if (res.error) {
+      throw new Error(`OpenCode error: ${JSON.stringify(res.error)}`);
+    }
+    const parts = (res.data?.parts ?? []) as Array<{ type: string; text?: string }>;
+    return parts.filter((part) => part.type === "text" && typeof part.text === "string").map((part) => part.text).join("");
+  }
+
   async compactPrimarySession(userName: string, agentId?: string): Promise<boolean> {
     const resolvedAgentId = resolveUserAgentId(userName, agentId);
     const key = this.getClientKey(userName, resolvedAgentId);

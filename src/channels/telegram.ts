@@ -34,7 +34,7 @@ export class TelegramChannel implements Channel {
     }
   }
 
-  async sendMessage(userName: string, text: string, options?: { buttons?: string[][]; agentId?: string }): Promise<SendResult> {
+  async sendMessage(userName: string, text: string, options?: { buttons?: import("./index.js").ButtonSpec[][]; agentId?: string }): Promise<SendResult> {
     const chatId = this.getChatId(userName, options?.agentId);
     if (!chatId) return { ok: false, error: `Unknown user "${userName}"` };
     const botToken = this.getBotToken(userName, options?.agentId);
@@ -44,7 +44,10 @@ export class TelegramChannel implements Channel {
     if (options?.buttons?.length) {
       replyMarkup = {
         inline_keyboard: options.buttons.map((row) =>
-          row.map((label) => ({ text: label, callback_data: label })),
+          row.map((spec) => {
+            if (typeof spec === "string") return { text: spec, callback_data: spec };
+            return { text: spec.label, callback_data: spec.payload };
+          }),
         ),
       };
     }

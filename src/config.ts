@@ -47,6 +47,7 @@ export interface KellixConfig {
   sharedDir: string;
   defaultsDir: string;
   defaultSkillsDir: string;
+  defaultWorkflowsDir: string;
   vaultDir: string;
   mcpPort: number;
   webPort: number;
@@ -74,6 +75,10 @@ export function getUserAgentDir(userName: string, agentId: string): string {
 
 export function getUserAgentSkillsDir(userName: string, agentId: string): string {
   return join(getUserAgentDir(userName, agentId), "skills");
+}
+
+export function getUserAgentWorkflowsDir(userName: string, agentId: string): string {
+  return join(getUserAgentDir(userName, agentId), "workflows");
 }
 
 /** Runtime config set after vault is unlocked */
@@ -113,6 +118,7 @@ export const config: KellixConfig = Object.freeze({
   sharedDir: join(kellixDir, "shared"),
   defaultsDir: join(projectRoot, "defaults"),
   defaultSkillsDir: join(projectRoot, "defaults/skills"),
+  defaultWorkflowsDir: join(projectRoot, "defaults/workflows"),
   vaultDir,
   mcpPort,
   webPort,

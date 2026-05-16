@@ -18,10 +18,10 @@ import {
   OPENCODE_AGENT_FILE,
 } from "./brand.js";
 import { syncUserAgentsRuntime } from "./agents.js";
-import { kellixDir, config, getUserAgentDir, getUserAgentSkillsDir, getUserDir } from "./config.js";
+import { kellixDir, config, getUserAgentDir, getUserAgentSkillsDir, getUserAgentWorkflowsDir, getUserDir } from "./config.js";
 import { migrateLegacyUserJobs } from "./scheduler.js";
 import { getTelegramBotToken } from "./secrets.js";
-import { syncBundledSkillsForUser, validateProjectScriptsManifest, validateSkillDirectories } from "./skills.js";
+import { syncBundledSkillsForUser, syncBundledWorkflowDocs, validateProjectScriptsManifest, validateSkillDirectories } from "./skills.js";
 import { readUserAgentsConfig, writeUserAgentsConfig, type KellixUserAgent } from "./user-agents.js";
 import { Vault, readKeyfile, initializeVault, hasKeyfile } from "./vault/index.js";
 import { migrateUsersVaultKey, readUsersFromVault, toUserSlug, type UsersMap, uniqueUserSlugs, writeUserManifest } from "./users.js";
@@ -161,6 +161,12 @@ export function setupUserWorkspace(userName: string) {
       }
     }
 
+    // Every agent gets the workflow spec + JSON Schema alongside any of its
+    // own .workflow.yaml files. Examples stay in defaults/workflows/examples/
+    // and are referenced by docs (they have cron triggers and shouldn't fire
+    // on every agent automatically).
+    syncBundledWorkflowDocs(config.defaultWorkflowsDir, getUserAgentWorkflowsDir(userName, agent.id));
+
     if (agent.id === APP_SLUG) {
       syncBundledSkillsForUser(config.defaultSkillsDir, getUserAgentSkillsDir(userName, agent.id));
     } else {
@@ -234,8 +240,9 @@ Read /data/SOUL.md and /data/AGENTS.md first.
 Use /data/memory for private memory.
 Use /data/skills for skills.
 Use /data/jobs for agent-owned jobs.
+Use /data/workflows for multi-step automations (cron-driven watchdogs, approval-gated deploys, sub-workflows). Spec is at /data/workflows/WORKFLOW_TEMPLATE.md; JSON Schema at /data/workflows/SCHEMA.json. Always call manage_workflows action=validate before action=define to pre-check your YAML.
 Use /data/shared only for household-wide context when explicitly relevant.
-When calling send_message, send_file, manage_jobs, or run_script, always use this exact userName: ${userName} and agentId: ${agent.id}
+When calling send_message, send_file, manage_jobs, manage_workflows, or run_script, always use this exact userName: ${userName} and agentId: ${agent.id}
 `;
 }
 
