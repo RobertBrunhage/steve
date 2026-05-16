@@ -87,11 +87,14 @@ function renderIntegrationForm(opts: IntegrationFormOptions): string {
             x-model="row.name"
             placeholder="field name (e.g. client_id)"
             class="w-full sm:flex-none sm:w-44 px-3 py-2 bg-surface border border-border rounded-lg text-sm text-neutral-900 font-mono placeholder-neutral-400 focus:border-border-focus focus:outline-none">
-          <input type="password"
+          <textarea
             :name="'field_value_' + i"
             x-model="row.value"
+            rows="1"
+            spellcheck="false"
+            autocomplete="off"
             placeholder="${escapeHtml(valuePlaceholder)}"
-            class="w-full sm:flex-1 px-3 py-2 bg-surface border border-border rounded-lg text-sm text-neutral-900 font-mono placeholder-neutral-400 focus:border-border-focus focus:outline-none">
+            class="w-full sm:flex-1 px-3 py-2 bg-surface border border-border rounded-lg text-sm text-neutral-900 font-mono placeholder-neutral-400 focus:border-border-focus focus:outline-none resize-y min-h-[2.5rem]"></textarea>
           <button type="button"
             @click="rows.splice(i, 1)"
             x-show="rows.length > 1"
