@@ -18,8 +18,23 @@ import {
   writeWorkflow,
 } from "../workflows/storage.js";
 import { validateWorkflowYaml, type WorkflowRunner } from "../workflows/runner.js";
+import type { WorkflowInstance } from "../workflows/types.js";
 import { parseWorkflow } from "../workflows/parser.js";
 import { discoverProjectScripts, executeAllowedScript, resolveAllowedScript } from "./script-exec.js";
+
+function summarizeRun(i: WorkflowInstance) {
+  const out: Record<string, unknown> = {
+    id: i.id,
+    workflow: i.workflowName,
+    status: i.status,
+    trigger: i.trigger.kind,
+    startedAt: i.startedAt,
+    finishedAt: i.finishedAt,
+    currentStepId: i.currentStepId,
+  };
+  if (i.status === "error" && i.error) out.error = i.error.message;
+  return out;
+}
 
 interface McpConfig {
   channel: Channel;
@@ -231,17 +246,18 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
     description:
       "Define and run Kellix workflows for the calling agent. Workflows are YAML files in agents/<id>/workflows/ that orchestrate shell, llm, approval, sub-workflow, and cross_agent steps. Validate yaml before defining; pass agentId to scope to the calling agent.",
     inputSchema: {
-      action: z.enum(["list", "view", "run", "cancel", "resume", "validate", "define", "delete"]).describe("Action to perform"),
+      action: z.enum(["list", "view", "runs", "run", "cancel", "resume", "validate", "define", "delete"]).describe("Action to perform"),
       userName: z.string().describe("User the workflow belongs to"),
       agentId: z.string().optional().describe("Agent id. Defaults to the user's kellix agent."),
-      name: z.string().optional().describe("Workflow name (for view/run/validate/define/delete)"),
+      name: z.string().optional().describe("Workflow name (for view/runs/run/validate/define/delete)"),
       yaml: z.string().optional().describe("Workflow YAML content (for validate/define)"),
       args: z.record(z.string(), z.any()).optional().describe("Args to pass when running (for run)"),
       instanceId: z.string().optional().describe("Instance id (for view/cancel/resume)"),
       response: z.string().optional().describe("Approval response text (for resume)"),
       approvedBy: z.string().optional().describe("Identity of approver (for resume)"),
+      limit: z.number().int().min(1).max(200).optional().describe("Max recent runs to return (default 20, for runs/list)"),
     },
-  }, async ({ action, userName, agentId, name, yaml: yamlText, args, instanceId, response, approvedBy }) => {
+  }, async ({ action, userName, agentId, name, yaml: yamlText, args, instanceId, response, approvedBy, limit }) => {
     const user = toUserSlug(userName);
     const agent = toUserSlug(agentId || APP_SLUG);
     const engine = mcpConfig.engine;
@@ -269,15 +285,30 @@ export function createMcpServerFactory(mcpConfig: McpConfig, vault: Vault | null
         triggers: d.triggers,
         stepCount: d.steps.length,
       }));
-      const runs = listInstances(user, agent, { limit: 20 }).map((i) => ({
-        id: i.id,
-        workflowName: i.workflowName,
-        status: i.status,
-        startedAt: i.startedAt,
-        finishedAt: i.finishedAt,
-        currentStepId: i.currentStepId,
-      }));
+      const runs = listInstances(user, agent, { limit: limit ?? 20 }).map(summarizeRun);
       return { content: [{ type: "text", text: JSON.stringify({ workflows: defs, runs }, null, 2) }] };
+    }
+
+    if (action === "runs") {
+      const all = listInstances(user, agent, { workflowName: name, limit: limit ?? 20 });
+      const runs = all.map(summarizeRun);
+      const counts = all.reduce<Record<string, number>>((acc, i) => {
+        acc[i.status] = (acc[i.status] ?? 0) + 1;
+        return acc;
+      }, {});
+      const lastRunAt = all[0]?.startedAt;
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            workflow: name ?? "(all)",
+            count: runs.length,
+            lastRunAt,
+            statusCounts: counts,
+            runs,
+          }, null, 2),
+        }],
+      };
     }
 
     if (action === "view") {

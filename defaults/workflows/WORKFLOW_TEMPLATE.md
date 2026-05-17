@@ -215,6 +215,7 @@ manage_workflows action=define name=<n> yaml=<content>  # write
 manage_workflows action=run name=<n> [args=...]     # manual trigger
 manage_workflows action=view name=<n>               # inspect def
 manage_workflows action=view instanceId=<id>        # inspect run
+manage_workflows action=runs name=<n> [limit=N]     # recent runs: status/trigger/timing — proves cron has fired
 manage_workflows action=resume instanceId=<id> response="Yes"
 ```
 

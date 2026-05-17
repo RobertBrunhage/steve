@@ -85,6 +85,7 @@ To create one:
 2. Call `manage_workflows action=validate yaml=<content>` — get back line/column errors if any. Iterate until valid.
 3. Call `manage_workflows action=define name=<n> yaml=<content>` to write the file. It refuses to write invalid YAML.
 4. Call `manage_workflows action=run name=<n>` to test it.
+5. Call `manage_workflows action=runs name=<n>` to see recent run history (status, trigger kind, timing) — useful when the user asks "has this been running on cron?"
 
 Why workflows over jobs: a job fires the LLM on every tick. A workflow's `run:` / `script:` / `pipeline:` steps are deterministic (no LLM cost), and `llm:` only invokes the agent when needed. For a "ping every minute, escalate on failure" pattern, the workflow pays LLM cost only on actual incidents — pennies per day instead of dollars. Look at `defaults/workflows/examples/grafana-watchdog.workflow.yaml` for the canonical pattern.
 
