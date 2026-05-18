@@ -74,7 +74,10 @@ export function getUserAgentDir(userName: string, agentId: string): string {
 }
 
 export function getUserAgentSkillsDir(userName: string, agentId: string): string {
-  return join(getUserAgentDir(userName, agentId), "skills");
+  // Skills live under `.agents/skills/` so OpenCode's built-in skill
+  // discovery (which scans `.agents/skills/<name>/SKILL.md` walking up
+  // from the working dir) picks them up automatically.
+  return join(getUserAgentDir(userName, agentId), ".agents", "skills");
 }
 
 export function getUserAgentWorkflowsDir(userName: string, agentId: string): string {

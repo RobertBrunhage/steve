@@ -151,7 +151,7 @@ async function run() {
   });
 
   test("default skills copied into the default kellix agent workspace", () => {
-    const skills = readdirSync(join(testDir, "users", "testuser", "agents", "kellix", "skills"));
+    const skills = readdirSync(join(testDir, "users", "testuser", "agents", "kellix", ".agents", "skills"));
     assert.ok(skills.includes("personalization"), "personalization missing");
     assert.ok(skills.includes("training-coach"), "training-coach missing");
     assert.ok(skills.includes("nutrition-tracker"), "nutrition-tracker missing");
@@ -164,7 +164,7 @@ async function run() {
     assert.ok(existsSync(userDir));
     assert.ok(existsSync(join(agentDir, "SOUL.md")));
     assert.ok(existsSync(join(agentDir, "AGENTS.md")));
-    assert.ok(existsSync(join(agentDir, "skills")));
+    assert.ok(existsSync(join(agentDir, ".agents", "skills")));
   });
 
   test("memory subdirectories created", () => {
@@ -280,7 +280,7 @@ async function run() {
     const agentPath = join(testDir, "users", "testuser", "agents", "sysadmin", ".opencode", "agents", "sysadmin.md");
     assert.ok(existsSync(agentPath));
     assert.ok(existsSync(join(testDir, "users", "testuser", "agents", "sysadmin", "memory")));
-    assert.ok(existsSync(join(testDir, "users", "testuser", "agents", "sysadmin", "skills")));
+    assert.ok(existsSync(join(testDir, "users", "testuser", "agents", "sysadmin", ".agents", "skills")));
     const agent = readFileSync(agentPath, "utf-8");
     assert.match(agent, /Current Kellix agent: sysadmin/);
     assert.match(agent, /Your home workspace is \/data/);

@@ -14,9 +14,9 @@ import { appendRunScriptAudit } from "./audit.js";
 import { buildScriptExecutionContext, redactSecrets } from "./script-security.js";
 
 function extractAgentIdFromPath(scriptPath: string, dataDir: string, userName: string): string | null {
-  // Match users/<user>/agents/<agent>/skills/<skill>/... — used to inject
-  // KELLIX_AGENT_ID into the script env so skill helpers can translate
-  // /data/* paths to the calling agent's workspace.
+  // Match users/<user>/agents/<agent>/.agents/skills/<skill>/... — used
+  // to inject KELLIX_AGENT_ID into the script env so skill helpers can
+  // translate /data/* paths to the calling agent's workspace.
   const userAgentsRoot = resolve(join(dataDir, "users", toUserSlug(userName), "agents"));
   const resolved = resolve(scriptPath);
   if (!resolved.startsWith(userAgentsRoot + "/")) return null;
@@ -45,8 +45,18 @@ export function isSkillScript(scriptPath: string, dataDir: string): boolean {
   if (resolved.startsWith(usersDir + "/")) {
     const relative = resolved.slice(usersDir.length + 1);
     const parts = relative.split("/");
-    const legacyUserSkill = parts.length === 5 && parts[1] === "skills" && parts[3] === "scripts" && parts[4].endsWith(".sh");
-    const agentSkill = parts.length === 7 && parts[1] === "agents" && parts[3] === "skills" && parts[5] === "scripts" && parts[6].endsWith(".sh");
+    // Legacy user-level skill: users/<user>/skills/<skill>/scripts/<file>.sh
+    const legacyUserSkill = parts.length === 5
+      && parts[1] === "skills"
+      && parts[3] === "scripts"
+      && parts[4].endsWith(".sh");
+    // Agent-local skill: users/<user>/agents/<agent>/.agents/skills/<skill>/scripts/<file>.sh
+    const agentSkill = parts.length === 8
+      && parts[1] === "agents"
+      && parts[3] === ".agents"
+      && parts[4] === "skills"
+      && parts[6] === "scripts"
+      && parts[7].endsWith(".sh");
     return legacyUserSkill || agentSkill;
   }
   return false;
@@ -78,15 +88,18 @@ export function resolveAllowedScript(opts: ResolveOptions): ResolveResult {
   const scriptAgentId = toUserSlug(opts.agentId || APP_SLUG);
 
   let scriptPath = script;
-  const agentSkillsMatch = script.match(/(?:^|\/)agents\/([^/]+)\/(skills\/.+)$/);
-  const skillsMatch = script.match(/(?:^|\/)(skills\/.+)$/);
+  // Accept agent-prefixed paths first (cross-agent invocation), then the
+  // spec-aligned `.agents/skills/...` form, then bare `skills/...` (the
+  // common case — the calling agent's own skills).
+  const agentSkillsMatch = script.match(/(?:^|\/)agents\/([^/]+)\/(?:\.agents\/)?(skills\/.+)$/);
+  const skillsMatch = script.match(/(?:^|\/)(?:\.agents\/)?(skills\/.+)$/);
 
   if (agentSkillsMatch) {
     if (!userName) return { ok: false, error: "Skill scripts require the current user name as the first argument." };
-    scriptPath = join(dataDir, "users", userName, "agents", toUserSlug(agentSkillsMatch[1] || scriptAgentId), agentSkillsMatch[2] || "");
+    scriptPath = join(dataDir, "users", userName, "agents", toUserSlug(agentSkillsMatch[1] || scriptAgentId), ".agents", agentSkillsMatch[2] || "");
   } else if (skillsMatch) {
     if (!userName) return { ok: false, error: "Skill scripts require the current user name as the first argument." };
-    scriptPath = join(dataDir, "users", userName, "agents", scriptAgentId, skillsMatch[1]);
+    scriptPath = join(dataDir, "users", userName, "agents", scriptAgentId, ".agents", skillsMatch[1]);
   }
 
   const resolved = resolve(scriptPath);

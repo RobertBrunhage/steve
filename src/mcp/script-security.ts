@@ -31,9 +31,15 @@ function getSkillRoot(scriptPath: string, dataDir: string): string | null {
   if (resolved.startsWith(usersDir + "/")) {
     const relativePath = relative(usersDir, resolved);
     const parts = relativePath.split("/");
-    // Agent-local skill: users/<user>/agents/<agent>/skills/<skill>/...
-    if (parts.length >= 6 && parts[1] === "agents" && parts[3] === "skills" && parts[0] && parts[2] && parts[4]) {
-      return join(usersDir, parts[0], "agents", parts[2], "skills", parts[4]);
+    // Agent-local skill: users/<user>/agents/<agent>/.agents/skills/<skill>/...
+    if (
+      parts.length >= 7
+      && parts[1] === "agents"
+      && parts[3] === ".agents"
+      && parts[4] === "skills"
+      && parts[0] && parts[2] && parts[5]
+    ) {
+      return join(usersDir, parts[0], "agents", parts[2], ".agents", "skills", parts[5]);
     }
     // Legacy user-level skill: users/<user>/skills/<skill>/...
     if (parts.length >= 4 && parts[1] === "skills") {

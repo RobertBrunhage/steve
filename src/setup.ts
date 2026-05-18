@@ -36,7 +36,7 @@ function createDirectories() {
 }
 
 function getDefaultProfileContent(userName: string) {
-  const templatePath = join(config.defaultSkillsDir, "personalization", "templates", "profile.md");
+  const templatePath = join(config.defaultSkillsDir, "personalization", "assets", "profile.md");
   if (!existsSync(templatePath)) {
     return `# Profile\n\n## Name\n${userName}\n`;
   }
@@ -77,8 +77,12 @@ function migrateLegacyUserWorkspace(userName: string): void {
   for (const file of ["SOUL.md", "AGENTS.md"]) {
     moveLegacyEntry(join(userDir, file), join(kellixAgentDir, file));
   }
-  for (const dir of ["memory", "skills", ".opencode-data"]) {
-    moveLegacyEntry(join(userDir, dir), join(kellixAgentDir, dir));
+  for (const [src, dest] of [
+    ["memory", "memory"],
+    ["skills", ".agents/skills"],
+    [".opencode-data", ".opencode-data"],
+  ] as const) {
+    moveLegacyEntry(join(userDir, src), join(kellixAgentDir, dest));
   }
   // Legacy user-root opencode.json belongs to the kellix agent now.
   moveLegacyEntry(join(userDir, "opencode.json"), join(kellixAgentDir, "opencode.json"));
@@ -130,7 +134,7 @@ export function setupUserWorkspace(userName: string) {
       "memory/nutrition",
       "memory/training",
       "memory/body-measurements",
-      "skills",
+      ".agents/skills",
       "jobs",
       ".opencode-data",
       ".opencode/plugins",
@@ -238,7 +242,7 @@ ${profileBlock}
 Your home workspace is /data. Treat it as this agent's private root.
 Read /data/SOUL.md and /data/AGENTS.md first.
 Use /data/memory for private memory.
-Use /data/skills for skills.
+Use /data/.agents/skills for skills (OpenCode's auto-discovered location — your /help menu lists every available skill there).
 Use /data/jobs for agent-owned jobs.
 Use /data/workflows for multi-step automations (cron-driven watchdogs, approval-gated deploys, sub-workflows). Spec is at /data/workflows/WORKFLOW_TEMPLATE.md; JSON Schema at /data/workflows/SCHEMA.json. Always call manage_workflows action=validate before action=define to pre-check your YAML.
 Use /data/shared only for household-wide context when explicitly relevant.
