@@ -90,4 +90,4 @@ To create one:
 Why workflows over jobs: a job fires the LLM on every tick. A workflow's `run:` / `script:` / `pipeline:` steps are deterministic (no LLM cost), and `llm:` only invokes the agent when needed. For a "ping every minute, escalate on failure" pattern, the workflow pays LLM cost only on actual incidents — pennies per day instead of dollars. Look at `defaults/workflows/examples/grafana-watchdog.workflow.yaml` for the canonical pattern.
 
 ## Per-User Files
-When creating or updating files for a user, always check the relevant skill's `templates/` directory first and follow its structure exactly.
+When creating or updating files for a user, always check the relevant skill's `assets/` directory first and follow its structure exactly.
