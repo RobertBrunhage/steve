@@ -30,16 +30,18 @@ function run() {
   mkdirSync(join(projectRoot, "scripts"), { recursive: true });
 
   writeFileSync(join(dataDir, "users", "robert", "skills", "weather", "SKILL.md"), `---
-name: Weather
+name: weather
 description: Test skill
-scripts:
-  fetch.sh:
-    redactOutput: false
-    secrets:
-      - key: users/{user}/weather/app
-        fields: [api_key]
-      - key: users/{user}/weather/tokens
-        fields: [refresh_token]
+metadata:
+  kellix:
+    scripts:
+      fetch.sh:
+        redactOutput: false
+        secrets:
+          - key: users/{user}/weather/app
+            fields: [api_key]
+          - key: users/{user}/weather/tokens
+            fields: [refresh_token]
 ---
 
 # Weather
@@ -116,13 +118,15 @@ scripts:
     const withingsManifestPath = join(dataDir, "users", "robert", "skills", "withings", "SKILL.md");
     mkdirSync(join(dataDir, "users", "robert", "skills", "withings", "scripts"), { recursive: true });
     writeFileSync(withingsManifestPath, `---
-name: Withings
+name: withings
 description: Test skill
-scripts:
-  setup.sh:
-    secrets:
-      - key: users/{user}/withings/app
-        fields: [client_id, client_secret]
+metadata:
+  kellix:
+    scripts:
+      setup.sh:
+        secrets:
+          - key: users/{user}/withings/app
+            fields: [client_id, client_secret]
 ---
 
 # Withings

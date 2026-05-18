@@ -1,7 +1,9 @@
 ---
-name: Training Coach
+name: training-coach
 description: Personal training coach covering workouts, progression, body composition, and goal tracking. Use when the user mentions workouts, exercises, training plans, schedule, recovery, weight, measurements, or fitness progress.
-per_user: true
+metadata:
+  kellix:
+    per_user: true
 ---
 
 ## Training Coach Role
@@ -49,7 +51,7 @@ If they have a profile but no `schedule.md`, offer to build one based on their s
 - Tie things together: "You hit every session this week, but your squat has stalled for three sessions - let's adjust the plan."
 
 ### File Templates
-Templates live in `skills/training-coach/templates/`. When creating a new file for a user, ALWAYS read the matching template first and follow its exact structure. Do not invent your own formats.
+Templates live in `skills/training-coach/assets/`. When creating a new file for a user, ALWAYS read the matching template first and follow its exact structure. Do not invent your own formats.
 
 Available templates:
 - `body-measurements.md` - Single measurement session

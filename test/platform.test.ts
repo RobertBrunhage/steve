@@ -36,25 +36,29 @@ function run() {
 
   writeFileSync(join(skillsDir, "valid-skill", "scripts", "fetch.sh"), "#!/usr/bin/env bash\n", "utf-8");
   writeFileSync(join(skillsDir, "valid-skill", "SKILL.md"), `---
-name: Valid Skill
+name: valid-skill
 description: Test skill
-scripts:
-  fetch.sh:
-    secrets:
-      - key: "{user}/valid"
-        fields: [token]
+metadata:
+  kellix:
+    scripts:
+      fetch.sh:
+        secrets:
+          - key: "{user}/valid"
+            fields: [token]
 ---
 
 # Valid Skill
 `, "utf-8");
 
   writeFileSync(join(skillsDir, "invalid-skill", "SKILL.md"), `---
-name: Invalid Skill
+name: invalid-skill
 description: Test skill
-scripts:
-  missing.sh:
-    secrets:
-      - key: ""
+metadata:
+  kellix:
+    scripts:
+      missing.sh:
+        secrets:
+          - key: ""
 ---
 
 # Invalid Skill

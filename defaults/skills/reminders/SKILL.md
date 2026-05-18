@@ -1,7 +1,9 @@
 ---
-name: Reminders
+name: reminders
 description: Create scheduled and one-off reminders that send messages to the user on Telegram
-per_user: true
+metadata:
+  kellix:
+    per_user: true
 ---
 
 ## Reminders & Scheduled Messages

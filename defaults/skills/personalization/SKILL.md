@@ -1,7 +1,9 @@
 ---
-name: Personalization
+name: personalization
 description: Manage the user's shared profile, onboarding details, goals, targets, and communication preferences. Use when the user wants to set up or update their profile, goals, preferences, or personal defaults.
-per_user: true
+metadata:
+  kellix:
+    per_user: true
 ---
 
 ## Personalization
@@ -18,7 +20,7 @@ Use it when the user wants to:
 
 Always read these first:
 - `memory/profile.md` if it exists
-- `skills/personalization/templates/profile.md`
+- `skills/personalization/assets/profile.md`
 
 ## Purpose
 
@@ -67,7 +69,7 @@ Capture things like:
 
 ## File Template
 
-When creating or rebuilding `memory/profile.md`, ALWAYS read `skills/personalization/templates/profile.md` first and follow its structure.
+When creating or rebuilding `memory/profile.md`, ALWAYS read `skills/personalization/assets/profile.md` first and follow its structure.
 
 ## File Ownership
 

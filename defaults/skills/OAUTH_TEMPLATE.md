@@ -27,23 +27,24 @@ Use per-script secret declarations and disable output redaction only for scripts
 
 ```yaml
 ---
-name: Example OAuth Skill
-description: Sync data from an OAuth-based service
-per_user: true
-requires:
-  bins: [curl, jq]
-scripts:
-  setup.sh:
-    redactOutput: false
-    secrets:
-      - key: users/{user}/example/app
-        fields: [client_id, client_secret]
-      - key: users/{user}/example/tokens
-        fields: [access_token, refresh_token, expires_at]
-  complete-auth.sh:
-    secrets:
-      - key: users/{user}/example/app
-        fields: [client_id, client_secret]
+name: example
+description: Sync data from an OAuth-based service. Use when the user wants to connect Example.
+compatibility: Requires curl and jq
+metadata:
+  kellix:
+    per_user: true
+    scripts:
+      setup.sh:
+        redactOutput: false
+        secrets:
+          - key: users/{user}/example/app
+            fields: [client_id, client_secret]
+          - key: users/{user}/example/tokens
+            fields: [access_token, refresh_token, expires_at]
+      complete-auth.sh:
+        secrets:
+          - key: users/{user}/example/app
+            fields: [client_id, client_secret]
 ---
 ```
 

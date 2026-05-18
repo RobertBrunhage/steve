@@ -72,10 +72,15 @@ export function loadSkillManifestFromMarkdown(skillPath: string): SkillCapabilit
   if (!existsSync(skillPath)) return null;
   const raw = readFileSync(skillPath, "utf-8");
   const parsed = matter(raw);
-  if (!isRecord(parsed.data) || parsed.data.scripts === undefined) {
-    return null;
-  }
-  return parseSkillCapabilityManifest({ scripts: parsed.data.scripts }, skillPath);
+  if (!isRecord(parsed.data)) return null;
+
+  // Spec-compliant location: metadata.kellix.scripts
+  const metadata = isRecord(parsed.data.metadata) ? parsed.data.metadata : null;
+  const kellixMeta = metadata && isRecord(metadata.kellix) ? metadata.kellix : null;
+  const scripts = kellixMeta && kellixMeta.scripts !== undefined ? kellixMeta.scripts : undefined;
+
+  if (scripts === undefined) return null;
+  return parseSkillCapabilityManifest({ scripts }, skillPath);
 }
 
 export function loadJsonSkillManifest(manifestPath: string): SkillCapabilityManifest | null {

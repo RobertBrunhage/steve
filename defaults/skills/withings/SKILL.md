@@ -1,31 +1,32 @@
 ---
-name: Withings
+name: withings
 description: Sync weight and body composition data from the user's Withings scale. Use when the user mentions weight, scale, body fat, Withings, or wants to set up their scale.
-per_user: true
-requires:
-  bins: [curl, jq]
-scripts:
-  setup.sh:
-    redactOutput: false
-    secrets:
-      - key: users/{user}/withings/app
-        fields: [client_id, client_secret]
-      - key: users/{user}/withings/tokens
-        fields: [access_token, refresh_token, expires_at]
-  complete-auth.sh:
-    secrets:
-      - key: users/{user}/withings/app
-        fields: [client_id, client_secret]
-  fetch-measurements.sh:
-    secrets:
-      - key: users/{user}/withings/tokens
-        fields: [access_token, expires_at]
-  refresh-token.sh:
-    secrets:
-      - key: users/{user}/withings/app
-        fields: [client_id, client_secret]
-      - key: users/{user}/withings/tokens
-        fields: [refresh_token]
+compatibility: Requires curl and jq
+metadata:
+  kellix:
+    per_user: true
+    scripts:
+      setup.sh:
+        redactOutput: false
+        secrets:
+          - key: users/{user}/withings/app
+            fields: [client_id, client_secret]
+          - key: users/{user}/withings/tokens
+            fields: [access_token, refresh_token, expires_at]
+      complete-auth.sh:
+        secrets:
+          - key: users/{user}/withings/app
+            fields: [client_id, client_secret]
+      fetch-measurements.sh:
+        secrets:
+          - key: users/{user}/withings/tokens
+            fields: [access_token, expires_at]
+      refresh-token.sh:
+        secrets:
+          - key: users/{user}/withings/app
+            fields: [client_id, client_secret]
+          - key: users/{user}/withings/tokens
+            fields: [refresh_token]
 ---
 
 ## Setup & Sync

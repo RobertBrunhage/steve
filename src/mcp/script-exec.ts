@@ -4,7 +4,7 @@
 
 import { execFile } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import { appendUserActivity } from "../activity.js";
 import { APP_SLUG } from "../brand.js";
 import { config, getBaseUrl } from "../config.js";
@@ -12,6 +12,18 @@ import { toUserSlug } from "../users.js";
 import type { Vault } from "../vault/index.js";
 import { appendRunScriptAudit } from "./audit.js";
 import { buildScriptExecutionContext, redactSecrets } from "./script-security.js";
+
+function extractAgentIdFromPath(scriptPath: string, dataDir: string, userName: string): string | null {
+  // Match users/<user>/agents/<agent>/skills/<skill>/... — used to inject
+  // KELLIX_AGENT_ID into the script env so skill helpers can translate
+  // /data/* paths to the calling agent's workspace.
+  const userAgentsRoot = resolve(join(dataDir, "users", toUserSlug(userName), "agents"));
+  const resolved = resolve(scriptPath);
+  if (!resolved.startsWith(userAgentsRoot + "/")) return null;
+  const rel = relative(userAgentsRoot, resolved);
+  const [agentId] = rel.split("/");
+  return agentId || null;
+}
 
 export function discoverProjectScripts(projectRoot: string): Set<string> {
   const scripts = new Set<string>();
@@ -125,6 +137,11 @@ export async function executeAllowedScript(opts: ExecuteOptions): Promise<Execut
         KELLIX_PROJECT_ROOT: projectRoot,
         KELLIX_DATA_DIR: dataDir,
         KELLIX_BASE_URL: getBaseUrl(),
+        KELLIX_USER_NAME: userName,
+        ...(() => {
+          const agentId = extractAgentIdFromPath(resolved, dataDir, userName);
+          return agentId ? { KELLIX_AGENT_ID: agentId } : {};
+        })(),
         STEVE_PROJECT_ROOT: projectRoot,
         STEVE_DATA_DIR: dataDir,
         STEVE_BASE_URL: getBaseUrl(),

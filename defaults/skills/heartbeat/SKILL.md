@@ -1,7 +1,9 @@
 ---
-name: Heartbeat
+name: heartbeat
 description: Periodic background check that runs a checklist silently. Only messages the user if something needs attention.
-per_user: true
+metadata:
+  kellix:
+    per_user: true
 ---
 
 ## How It Works

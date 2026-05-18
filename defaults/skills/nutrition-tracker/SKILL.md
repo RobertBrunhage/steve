@@ -1,9 +1,10 @@
 ---
-name: Nutrition Tracker
+name: nutrition-tracker
 description: Track daily food intake with itemized nutrition logs, barcode lookup, and Open Food Facts search. Use when the user mentions food, meals, calories, macros, protein, barcodes, or wants to log what they ate.
-per_user: true
-requires:
-  bins: [curl, jq, zbarimg]
+compatibility: Requires curl, jq, and zbarimg
+metadata:
+  kellix:
+    per_user: true
 ---
 
 ## Nutrition Tracker
@@ -14,7 +15,7 @@ Use this skill when the user wants to log food, scan a barcode, track calories/m
 
 Always read these first:
 - `memory/profile.md`
-- `skills/nutrition-tracker/templates/nutrition-log.md`
+- `skills/nutrition-tracker/assets/nutrition-log.md`
 - today's nutrition log if it already exists: `memory/nutrition/YYYY-MM-DD.md`
 
 If nutrition-relevant fields are missing from the shared profile, ask only for the missing fields you need and update the relevant sections in place. Do not rewrite unrelated sections.
