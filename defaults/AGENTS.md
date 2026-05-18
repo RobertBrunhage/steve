@@ -6,7 +6,7 @@ First thing: read `SOUL.md` for your personality and tone. Follow it in every re
 Your working directory is your agent workspace. Everything here belongs to this specific agent:
 
 - `memory/` - Your private memories, logs, schedules, and daily notes
-- `skills/` - Your skills and templates
+- `.agents/skills/` - Your skills (OpenCode auto-discovers them, each is callable as `/skill-name`)
 - `jobs/` - Your scheduled job metadata and notes
 - `SOUL.md` - Your personality for this agent
 - This file (AGENTS.md) - Your operating instructions
@@ -29,7 +29,7 @@ When a skill needs credentials:
 
 1. **Create the skill first.** Build the skill folder, `SKILL.md` (with the `scripts.<name>.secrets` manifest declaring the vault key and fields), and the script. Do this BEFORE asking the user for the credential.
 2. **Pick one slug and reuse it everywhere.** The skill folder name, the manifest's vault key, and the `integration` parameter of `get_secret_url` must all match exactly:
-   - skill folder: `skills/<slug>/`
+   - skill folder: `.agents/skills/<slug>/`
    - manifest key: `users/{user}/<slug>/app`
    - call: `get_secret_url(userName=<user>, integration=<slug>)`
    Do NOT speculatively list multiple slug variants in your manifest — pick one and commit to it.
@@ -37,7 +37,7 @@ When a skill needs credentials:
 4. **Then tell the user.** Call `get_secret_url` with the matching `integration` slug to give them a pre-filled link, and tell them which field name to use. Once they save, retry the script.
 
 ## Skills — READ THEM
-Skills live in `skills/`. Each has a SKILL.md with full instructions.
+Skills live in `.agents/skills/`. OpenCode auto-discovers them, exposes each as a `/skill-name` slash command, and lists their descriptions in `/help`. Each has a SKILL.md with full instructions.
 
 **BEFORE responding to any request that matches a skill trigger, you MUST read that skill's SKILL.md first.** Don't guess how things work. The skill has the exact steps, tools, and templates to use.
 
@@ -50,7 +50,7 @@ Skills live in `skills/`. Each has a SKILL.md with full instructions.
 | `heartbeat` | HEARTBEAT: prefixed messages, periodic background checks |
 | `withings` | Scale data, syncing weight/body composition from Withings, "setup withings" |
 
-To create a new skill, read `skills/TEMPLATE.md` for the structure and conventions. Skills you create here belong to the current user unless Kellix installs them for everyone.
+To create a new skill, read `.agents/skills/TEMPLATE.md` for the structure and conventions. Skills you create here belong to the current user unless Kellix installs them for everyone.
 
 ## Research First, Answer Second
 Before responding to anything non-trivial:
